@@ -1,0 +1,43 @@
+### Health check
+GET http://localhost:8000/health
+
+###
+### Upload a single PDF (replace path with a real file)
+### Use the REST Client extension in VSCode (humao.rest-client)
+
+POST http://localhost:8000/api/parse
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="extract_name"
+
+true
+--boundary
+Content-Disposition: form-data; name="extract_position"
+
+true
+--boundary
+Content-Disposition: form-data; name="extract_phone"
+
+true
+--boundary
+Content-Disposition: form-data; name="extract_email"
+
+true
+--boundary
+Content-Disposition: form-data; name="languages"
+
+eng,tha
+--boundary
+Content-Disposition: form-data; name="empty_value"
+
+null
+--boundary--
+
+###
+### Get batch status (replace BATCH_ID)
+GET http://localhost:8000/api/batch/BATCH_ID
+
+###
+### Download Excel (replace BATCH_ID)
+GET http://localhost:8000/api/export/BATCH_ID

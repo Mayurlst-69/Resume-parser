@@ -1,0 +1,52 @@
+# =========================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+
+# =========================
+# 🌐 2. ฝั่ง Frontend (Node.js & Next.js)
+# =========================
+# โฟลเดอร์เก็บไลบรารี (หนักมาก โหลดใหม่ได้)
+node_modules/
+frontend/node_modules/
+
+# ไฟล์ที่ได้จากการ Build ระบบ Next.js
+.next/
+frontend/.next/
+out/
+build/
+
+# ไฟล์ Log แจ้งเตือน Error ต่างๆ
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# 🐍 3. ฝั่ง Backend (Python & FastAPI)
+# =========================
+# โฟลเดอร์จำลองสภาพแวดล้อม (หนักมาก โหลดใหม่ได้)
+venv/
+env/
+.venv/
+backend/venv/
+
+# ไฟล์แคชและไฟล์ที่ Python แปลงรูปแล้ว (ขยะ)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# =========================
+# 💻 4. ไฟล์ระบบและโปรแกรมเขียนโค้ด
+# =========================
+# การตั้งค่า VSCode ส่วนตัว
+.vscode/
+*.code-workspace
+
+# ไฟล์ขยะของ Mac และ Windows
+.DS_Store
+Thumbs.db
