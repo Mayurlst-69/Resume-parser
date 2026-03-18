@@ -50,3 +50,16 @@ __pycache__/
 # ไฟล์ขยะของ Mac และ Windows
 .DS_Store
 Thumbs.db
+
+# ไฟล์ผลลัพธ์
+*.xlsx
+*.csv
+
+# ไฟล์อัปโหลดและไฟล์ที่ระบบสร้างขึ้น
+backend/uploads/
+backend/temp/
+frontend/public/uploads/
+*.pdf
+*.png
+*.jpg
+*.jpeg
