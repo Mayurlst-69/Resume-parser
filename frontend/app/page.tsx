@@ -4,6 +4,7 @@ import DropZone from '@/components/DropZone'
 import ConfigPanel from '@/components/ConfigPanel'
 import JobQueue from '@/components/JobQueue'
 import ResultTable from '@/components/ResultTable'
+import HistoryPanel from '@/components/HistoryPanel'
 import { useParseStore } from '@/lib/store'
 import { uploadBatch, subscribeToStatus } from '@/lib/api'
 import clsx from 'clsx'
@@ -14,6 +15,7 @@ export default function Home() {
     isUploading, setBatchId, setJobs, updateJob, setUploading, reset
   } = useParseStore()
 
+  const [tab, setTab] = useState<'upload' | 'history'>('upload')
   const [isDone, setIsDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
@@ -29,19 +31,14 @@ export default function Home() {
     setIsDone(false)
     setUploading(true)
     reset()
-
     try {
       const res = await uploadBatch(pendingFiles, config)
       setBatchId(res.batch_id)
       setJobs(res.jobs)
       setPendingFiles([])
-
-      // Subscribe to SSE
       const unsub = subscribeToStatus(
         res.batch_id,
-        (update) => {
-          if (update.job_id) updateJob(update as any)
-        },
+        (update) => { if (update.job_id) updateJob(update as any) },
         () => setIsDone(true)
       )
       unsubRef.current = unsub
@@ -78,6 +75,25 @@ export default function Home() {
               batch: {batchId.slice(0, 8)}
             </span>
           )}
+          {/* Tab switcher */}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+            <button
+              onClick={() => setTab('upload')}
+              className={clsx('px-3 py-1.5 transition-colors',
+                tab === 'upload' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'
+              )}
+            >
+              Upload
+            </button>
+            <button
+              onClick={() => setTab('history')}
+              className={clsx('px-3 py-1.5 transition-colors',
+                tab === 'history' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50'
+              )}
+            >
+              History
+            </button>
+          </div>
           {(batchId || pendingFiles.length > 0) && (
             <button
               onClick={handleReset}
@@ -91,90 +107,98 @@ export default function Home() {
 
       <main className="max-w-5xl mx-auto px-6 py-6 flex flex-col gap-5">
 
-        {/* Error */}
-        {error && (
-          <div className="bg-[--red-light] border border-red-200 text-[--red] text-xs px-4 py-3 rounded-xl">
-            {error}
-          </div>
-        )}
+        {/* History tab */}
+        {tab === 'history' && <HistoryPanel />}
 
-        {/* Drop zone — hide after upload started */}
-        {!batchId && (
+        {/* Upload tab */}
+        {tab === 'upload' && (
           <>
-            <DropZone onFiles={handleFiles} disabled={isUploading} />
-            <ConfigPanel />
+            {/* Error */}
+            {error && (
+              <div className="bg-[--red-light] border border-red-200 text-[--red] text-xs px-4 py-3 rounded-xl">
+                {error}
+              </div>
+            )}
 
-            {/* Pending files preview */}
-            {pendingFiles.length > 0 && (
-              <div className="bg-white border border-gray-100 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-medium text-gray-700">
-                    {pendingFiles.length} file{pendingFiles.length > 1 ? 's' : ''} ready
-                  </span>
-                  <button
-                    onClick={() => setPendingFiles([])}
-                    className="text-[10px] text-gray-400 hover:text-gray-600"
-                  >
-                    clear
-                  </button>
+            {/* Drop zone */}
+            {!batchId && (
+              <>
+                <DropZone onFiles={handleFiles} disabled={isUploading} />
+                <ConfigPanel />
+
+                {/* Pending files preview */}
+                {pendingFiles.length > 0 && (
+                  <div className="bg-white border border-gray-100 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-medium text-gray-700">
+                        {pendingFiles.length} file{pendingFiles.length > 1 ? 's' : ''} ready
+                      </span>
+                      <button
+                        onClick={() => setPendingFiles([])}
+                        className="text-[10px] text-gray-400 hover:text-gray-600"
+                      >
+                        clear
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {pendingFiles.map((f, i) => (
+                        <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 mono">
+                          {f.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleStart}
+                  disabled={pendingFiles.length === 0 || isUploading}
+                  className={clsx(
+                    'w-full py-3 rounded-xl text-sm font-medium transition-all',
+                    pendingFiles.length > 0
+                      ? 'bg-[--teal] text-white hover:bg-[--teal-dark] shadow-sm'
+                      : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                  )}
+                >
+                  {isUploading ? 'Uploading…' : `Parse ${pendingFiles.length || ''} resume${pendingFiles.length !== 1 ? 's' : ''}`}
+                </button>
+              </>
+            )}
+
+            {/* Progress bar */}
+            {batchId && jobs.length > 0 && !isDone && (
+              <div>
+                <div className="flex justify-between text-xs text-gray-400 mb-1.5">
+                  <span>Processing {jobs.length} files…</span>
+                  <span>{progress}%</span>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {pendingFiles.map((f, i) => (
-                    <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 mono">
-                      {f.name}
-                    </span>
-                  ))}
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[--teal] rounded-full transition-all duration-500"
+                    style={{ width: `${progress}%` }}
+                  />
                 </div>
               </div>
             )}
 
-            <button
-              onClick={handleStart}
-              disabled={pendingFiles.length === 0 || isUploading}
-              className={clsx(
-                'w-full py-3 rounded-xl text-sm font-medium transition-all',
-                pendingFiles.length > 0
-                  ? 'bg-[--teal] text-white hover:bg-[--teal-dark] shadow-sm'
-                  : 'bg-gray-100 text-gray-300 cursor-not-allowed'
-              )}
-            >
-              {isUploading ? 'Uploading…' : `Parse ${pendingFiles.length || ''} resume${pendingFiles.length !== 1 ? 's' : ''}`}
-            </button>
-          </>
-        )}
+            {/* Done banner */}
+            {isDone && (
+              <div className="bg-[--teal-light] border border-[--teal] text-[--teal-dark] text-sm px-4 py-3 rounded-xl flex items-center gap-2">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <circle cx="7" cy="7" r="6" stroke="#1D9E75" strokeWidth="1.2"/>
+                  <path d="M4 7l2 2 4-4" stroke="#1D9E75" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                All files processed — download your Excel below
+              </div>
+            )}
 
-        {/* Progress bar */}
-        {batchId && jobs.length > 0 && !isDone && (
-          <div>
-            <div className="flex justify-between text-xs text-gray-400 mb-1.5">
-              <span>Processing {jobs.length} files…</span>
-              <span>{progress}%</span>
-            </div>
-            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[--teal] rounded-full transition-all duration-500"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Done banner */}
-        {isDone && (
-          <div className="bg-[--teal-light] border border-[--teal] text-[--teal-dark] text-sm px-4 py-3 rounded-xl flex items-center gap-2">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <circle cx="7" cy="7" r="6" stroke="#1D9E75" strokeWidth="1.2"/>
-              <path d="M4 7l2 2 4-4" stroke="#1D9E75" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            All files processed — download your Excel below
-          </div>
-        )}
-
-        {/* Queue + Results */}
-        {batchId && (
-          <>
-            <JobQueue jobs={jobs} />
-            <ResultTable jobs={jobs} batchId={batchId} />
+            {/* Queue + Results */}
+            {batchId && (
+              <>
+                <JobQueue jobs={jobs} />
+                <ResultTable jobs={jobs} batchId={batchId} />
+              </>
+            )}
           </>
         )}
 

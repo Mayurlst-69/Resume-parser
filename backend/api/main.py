@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from dotenv import load_dotenv
 
+
 load_dotenv()
 
 from api.models import ParseConfig, ParseJob, JobStatus, ExtractedFields
@@ -20,6 +21,7 @@ from extractors.ocr_extractor import ocr_image_file, ocr_scanned_pdf
 from extractors.field_parser import parse_fields
 from exporters.excel_exporter import build_excel
 
+GROQ_SEMAPHORE = asyncio.Semaphore(3)  # max 3 concurrent Groq calls
 app = FastAPI(title="Resume Parser API", version="1.0.0")
 
 app.add_middleware(
@@ -94,6 +96,11 @@ async def run_all_jobs(batch_id: str, jobs: list[tuple]):
             for job_id, tmp_path, suffix in jobs]
     await asyncio.gather(*tasks)
 
+    # ── Auto-save to SQLite when batch completes ──
+    finished_jobs = queue.get_batch(batch_id)
+    if finished_jobs:
+        db_save_batch(batch_id, finished_jobs)
+
 
 async def run_single_job(
     batch_id: str,
@@ -115,7 +122,8 @@ async def run_single_job(
             )
             return
 
-        fields = await parse_fields(text, config)
+        async with GROQ_SEMAPHORE:
+            fields = await parse_fields(text, config)
 
         # Blend OCR confidence into final confidence for image-based files
         if ocr_conf > 0:
@@ -243,10 +251,59 @@ async def export_excel(batch_id: str):
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=resumes_{batch_id[:8]}.xlsx"},
+        headers={"Content-Disposition": f"attachment; filename=Extracted_Data{batch_id[:8]}.xlsx"},
     )
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+# ── Batch History ─────────────────────────────────────────────────────────────
+
+from workers.History_db import list_batches, get_batch_jobs, delete_batch, save_batch as db_save_batch
+
+@app.get("/api/history")
+async def get_history():
+    """List all saved batches."""
+    return {"batches": list_batches()}
+
+@app.get("/api/history/{batch_id}/export")
+async def export_history_excel(batch_id: str):
+    """Re-export Excel for a historical batch from SQLite."""
+    rows = get_batch_jobs(batch_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Batch not found in history")
+
+    # Reconstruct ParseJob objects from DB rows
+    jobs = []
+    for r in rows:
+        from api.models import ParseJob
+        job = ParseJob(
+            job_id=r["job_id"],
+            filename=r["filename"],
+            status=JobStatus(r["status"]),
+            parse_method=r["parse_method"] or "",
+            file_size_kb=r["file_size_kb"] or 0,
+            error=r["error"],
+            result=ExtractedFields(
+                name=r["name"],
+                position=r["position"],
+                phone=r["phone"],
+                email=r["email"],
+                confidence=r["confidence"] or 0,
+            ) if r["status"] in ("done", "low_confidence") else None,
+        )
+        jobs.append(job)
+
+    xlsx_bytes = build_excel(jobs)
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=history_{batch_id[:8]}.xlsx"},
+    ) 
+
+@app.delete("/api/history/{batch_id}")
+async def delete_history_batch(batch_id: str):
+    delete_batch(batch_id)
+    return {"deleted": batch_id}

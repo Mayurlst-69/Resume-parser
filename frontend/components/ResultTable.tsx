@@ -8,8 +8,8 @@ interface Props {
   batchId: string | null
 }
 
-function Cell({ value, isNull }: { value: string | null; isNull?: boolean }) {
-  if (!value || value === 'null' || isNull) {
+function Cell({ value }: { value: string | null }) {
+  if (!value || value === 'null') {
     return <span className="text-gray-300 italic mono text-[11px]">null</span>
   }
   return <span>{value}</span>
@@ -22,7 +22,7 @@ function ConfBadge({ value }: { value: number }) {
     pct >= 60 ? 'bg-[--amber-light] text-[--amber]' :
     'bg-[--red-light] text-[--red]'
   return (
-    <span className={clsx('text-[10px] px-2 py-0.5 rounded-full font-medium mono', cls)}>
+    <span className={clsx('text-[10px] px-2 py-0.5 rounded-full font-medium mono whitespace-nowrap', cls)}>
       {pct}%
     </span>
   )
@@ -64,16 +64,18 @@ export default function ResultTable({ jobs, batchId }: Props) {
         </button>
       </div>
 
-      {/* Table */}
+      {/* Table — horizontal scroll on overflow */}
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
+        <table className="w-full text-xs" style={{ minWidth: '900px' }}>
           <thead>
             <tr className="bg-gray-50">
-              {['Name', 'Position', 'Phone', 'Email', 'Conf.', 'Source file', 'Method'].map((h) => (
-                <th key={h} className="text-left px-4 py-2.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                  {h}
-                </th>
-              ))}
+              <th className="text-left px-4 py-2.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider" style={{ minWidth: '160px' }}>Name</th>
+              <th className="text-left px-4 py-2.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider" style={{ minWidth: '200px' }}>Position</th>
+              <th className="text-left px-4 py-2.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider" style={{ minWidth: '140px' }}>Phone</th>
+              <th className="text-left px-4 py-2.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider" style={{ minWidth: '200px' }}>Email</th>
+              <th className="text-left px-4 py-2.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider" style={{ minWidth: '70px' }}>Conf.</th>
+              <th className="text-left px-4 py-2.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider" style={{ minWidth: '180px' }}>Source file</th>
+              <th className="text-left px-4 py-2.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider" style={{ minWidth: '90px' }}>Method</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
@@ -81,29 +83,41 @@ export default function ResultTable({ jobs, batchId }: Props) {
               <tr
                 key={job.job_id}
                 className={clsx(
-                  'transition-colors',
+                  'transition-colors hover:bg-gray-50/50',
                   job.status === 'low_confidence' && 'bg-amber-50/50',
                 )}
               >
-                <td className="px-4 py-2.5 text-gray-800 whitespace-nowrap">
+                {/* Name — never truncate */}
+                <td className="px-4 py-3 text-gray-800 font-medium">
                   <Cell value={job.result?.name ?? null} />
                 </td>
-                <td className="px-4 py-2.5 text-gray-800 whitespace-nowrap">
+                {/* Position */}
+                <td className="px-4 py-3 text-gray-700">
                   <Cell value={job.result?.position ?? null} />
                 </td>
-                <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap mono">
+                {/* Phone */}
+                <td className="px-4 py-3 text-gray-600 mono whitespace-nowrap">
                   <Cell value={job.result?.phone ?? null} />
                 </td>
-                <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">
+                {/* Email */}
+                <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                   <Cell value={job.result?.email ?? null} />
                 </td>
-                <td className="px-4 py-2.5">
+                {/* Confidence */}
+                <td className="px-4 py-3">
                   {job.result ? <ConfBadge value={job.result.confidence} /> : '—'}
                 </td>
-                <td className="px-4 py-2.5 text-blue-500 underline whitespace-nowrap max-w-[200px] truncate">
-                  {job.filename}
+                {/* Source file */}
+                <td className="px-4 py-3 max-w-[200px]">
+                  <span
+                    className="text-blue-500 hover:text-blue-700 underline cursor-pointer block truncate"
+                    title={job.filename}
+                  >
+                    {job.filename}
+                  </span>
                 </td>
-                <td className="px-4 py-2.5 text-gray-400 mono whitespace-nowrap">
+                {/* Method */}
+                <td className="px-4 py-3 text-gray-400 mono whitespace-nowrap">
                   {job.parse_method || '—'}
                 </td>
               </tr>
