@@ -1,10 +1,13 @@
 import { create } from 'zustand'
 
 export type JobStatus = 'queued' | 'processing' | 'done' | 'failed' | 'low_confidence'
+export type Certainty = 'confident' | 'unsure' | 'absent'
 
 export interface ExtractedFields {
   name: string | null
+  name_cert: Certainty
   position: string | null
+  position_cert: Certainty
   phone: string | null
   email: string | null
   confidence: number

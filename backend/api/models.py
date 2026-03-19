@@ -13,7 +13,9 @@ class JobStatus(str, Enum):
 
 class ExtractedFields(BaseModel):
     name: Optional[str] = None
+    name_cert: str = "absent"        # confident | unsure | absent
     position: Optional[str] = None
+    position_cert: str = "absent"    # confident | unsure | absent
     phone: Optional[str] = None
     email: Optional[str] = None
     confidence: float = 0.0
