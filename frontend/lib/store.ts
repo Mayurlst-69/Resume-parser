@@ -10,6 +10,9 @@ export interface ExtractedFields {
   position_cert: Certainty
   phone: string | null
   email: string | null
+  address: string | null
+  education: string | null
+  experience: string | null
   confidence: number
 }
 
@@ -28,6 +31,9 @@ export interface ParseConfig {
   extract_position: boolean
   extract_phone: boolean
   extract_email: boolean
+  extract_address: boolean
+  extract_education: boolean
+  extract_experience: boolean
   languages: string[]
   empty_value: 'null' | ''
   extract_mode: 'concise' | 'general'
@@ -51,6 +57,9 @@ const defaultConfig: ParseConfig = {
   extract_position: true,
   extract_phone: true,
   extract_email: true,
+  extract_address: false,
+  extract_education: false,
+  extract_experience: false,
   languages: ['eng', 'tha'],
   empty_value: 'null',
   extract_mode: 'concise',

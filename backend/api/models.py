@@ -18,6 +18,9 @@ class ExtractedFields(BaseModel):
     position_cert: str = "absent"    # confident | unsure | absent
     phone: Optional[str] = None
     email: Optional[str] = None
+    address: Optional[str] = None
+    education: Optional[str] = None
+    experience: Optional[str] = None
     confidence: float = 0.0
 
 
@@ -36,6 +39,9 @@ class ParseConfig(BaseModel):
     extract_position: bool = True
     extract_phone: bool = True
     extract_email: bool = True
+    extract_address: bool = False
+    extract_education: bool = False
+    extract_experience: bool = False
     languages: List[str] = ["eng", "tha"]
     empty_value: str = "null"  # "null" or ""
     extract_mode: str = "concise"  # "concise" | "general"
