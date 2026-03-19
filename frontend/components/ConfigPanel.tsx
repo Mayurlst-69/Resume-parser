@@ -14,6 +14,19 @@ const LANGS = [
   { code: 'tha', label: 'Thai' },
 ]
 
+const EXTRACT_MODES = [
+  {
+    value: 'concise',
+    label: 'Concise extract',
+    desc: 'Smart section detect — Send to AI only contact section / less token more concise for standard resume', 
+  },
+  {
+    value: 'general',
+    label: 'General extract',
+    desc: 'Send Full text 4000 chars — safe for resume weird format or the name not on standard position',
+  },
+] as const
+
 export default function ConfigPanel() {
   const { config, setConfig } = useParseStore()
 
@@ -32,86 +45,130 @@ export default function ConfigPanel() {
   }
 
   return (
-    <div className="grid grid-cols-3 gap-3">
-      {/* Fields */}
-      <div className="col-span-2 bg-white border border-gray-100 rounded-xl p-4">
+      <div className="flex flex-col gap-3">
+
+      {/* Extract mode */}
+      <div className="bg-white border border-gray-100 rounded-xl p-4">
         <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-3">
-          Extract fields
+          Extract mode
         </p>
-        <div className="flex flex-wrap gap-2">
-          {FIELDS.map(({ key, label }) => {
-            const on = config[key]
+        <div className="grid grid-cols-2 gap-2">
+          {EXTRACT_MODES.map(({ value, label, desc }) => {
+            const on = config.extract_mode === value
             return (
               <button
-                key={key}
-                onClick={() => toggleField(key)}
+                key={value}
+                onClick={() => setConfig({ extract_mode: value })}
                 className={clsx(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                  'text-left p-3 rounded-xl border transition-all',
                   on
-                    ? 'bg-[--teal-light] text-[--teal-dark] border-[--teal]'
-                    : 'bg-gray-50 text-gray-400 border-gray-200 hover:border-gray-300'
+                    ? 'bg-[--teal-light] border-[--teal]'
+                    : 'bg-gray-50 border-gray-200 hover:border-gray-300'
                 )}
               >
-                <span className={clsx(
-                  'w-2 h-2 rounded-full transition-colors',
-                  on ? 'bg-[--teal]' : 'bg-gray-300'
-                )} />
-                {label}
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={clsx(
+                    'w-2 h-2 rounded-full flex-shrink-0',
+                    on ? 'bg-[--teal]' : 'bg-gray-300'
+                  )} />
+                  <span className={clsx(
+                    'text-xs font-medium',
+                    on ? 'text-[--teal-dark]' : 'text-gray-600'
+                  )}>
+                    {label}
+                  </span>
+                </div>
+                <p className="text-[10px] text-gray-400 leading-relaxed pl-4">
+                  {desc}
+                </p>
               </button>
             )
           })}
         </div>
       </div>
-
-      {/* Language */}
-      <div className="bg-white border border-gray-100 rounded-xl p-4">
-        <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-3">
-          OCR language
-        </p>
-        <div className="flex gap-2 mb-3">
-          {LANGS.map(({ code, label }) => {
-            const on = config.languages.includes(code)
-            return (
-              <button
-                key={code}
-                onClick={() => toggleLang(code)}
-                className={clsx(
-                  'px-3 py-1 rounded-full text-xs border transition-all',
-                  on
-                    ? 'bg-[--blue-light] text-[--blue] border-blue-300'
-                    : 'bg-gray-50 text-gray-400 border-gray-200'
-                )}
-              >
-                {label}
-              </button>
-            )
-          })}
+      {/* Bottom row */}
+      <div className="grid grid-cols-3 gap-3">
+        {/* Fields */}
+        <div className="col-span-2 bg-white border border-gray-100 rounded-xl p-4">
+          <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-3">
+            Extract fields
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {FIELDS.map(({ key, label }) => {
+              const on = config[key]
+              return (
+                <button
+                  key={key}
+                  onClick={() => toggleField(key)}
+                  className={clsx(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all',
+                    on
+                      ? 'bg-[--teal-light] text-[--teal-dark] border-[--teal]'
+                      : 'bg-gray-50 text-gray-400 border-gray-200 hover:border-gray-300'
+                  )}
+                >
+                  <span className={clsx(
+                    'w-2 h-2 rounded-full transition-colors',
+                    on ? 'bg-[--teal]' : 'bg-gray-300'
+                  )} />
+                  {label}
+                </button>
+              )
+            })}
+          </div>
         </div>
-        <p className="text-[10px] text-gray-400">Engine: EasyOCR</p>
-      </div>
 
-      {/* Empty value */}
-      <div className="bg-white border border-gray-100 rounded-xl p-4">
-        <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-3">
-          When field not found
-        </p>
-        <div className="flex flex-col gap-2">
-          {(['null', ''] as const).map((val) => (
-            <label key={val} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="empty"
-                checked={config.empty_value === val}
-                onChange={() => setConfig({ empty_value: val })}
-                className="accent-[--teal]"
-              />
-              <span className="text-xs text-gray-700 mono">
-                {val === 'null' ? 'null' : '""  (empty string)'}
-              </span>
-            </label>
-          ))}
+        {/* Language */}
+        <div className="bg-white border border-gray-100 rounded-xl p-4">
+          <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-3">
+            OCR language
+          </p>
+          <div className="flex gap-2 mb-3">
+            {LANGS.map(({ code, label }) => {
+              const on = config.languages.includes(code)
+              return (
+                <button
+                  key={code}
+                  onClick={() => toggleLang(code)}
+                  className={clsx(
+                    'px-3 py-1 rounded-full text-xs border transition-all',
+                    on
+                      ? 'bg-[--blue-light] text-[--blue] border-blue-300'
+                      : 'bg-gray-50 text-gray-400 border-gray-200'
+                  )}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-[10px] text-gray-400">Engine: EasyOCR</p>
+        </div>
+
+        {/* Empty value */}
+        <div className="bg-white border border-gray-100 rounded-xl p-4">
+          <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-3">
+            When field not found
+          </p>
+          <div className="flex flex-col gap-2">
+            {(['null', ''] as const).map((val) => (
+              <label key={val} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="empty"
+                  checked={config.empty_value === val}
+                  onChange={() => setConfig({ empty_value: val })}
+                  className="accent-[--teal]"
+                />
+                <span className="text-xs text-gray-700 mono">
+                  {val === 'null' ? 'null' : '""  (empty string)'}
+                </span>
+              </label>
+            ))}
+          </div>
         </div>
       </div>
+      
     </div>
   )
 }

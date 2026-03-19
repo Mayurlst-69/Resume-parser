@@ -30,6 +30,7 @@ export interface ParseConfig {
   extract_email: boolean
   languages: string[]
   empty_value: 'null' | ''
+  extract_mode: 'concise' | 'general'
 }
 
 interface ParseStore {
@@ -52,6 +53,7 @@ const defaultConfig: ParseConfig = {
   extract_email: true,
   languages: ['eng', 'tha'],
   empty_value: 'null',
+  extract_mode: 'concise',
 }
 
 export const useParseStore = create<ParseStore>((set) => ({
