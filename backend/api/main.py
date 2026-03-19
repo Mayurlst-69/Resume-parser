@@ -143,6 +143,8 @@ async def run_single_job(
         )
 
     except Exception as e:
+        print(f"[FAIL] {job_id} error: {e}")  # <- For debugging
+        import traceback; traceback.print_exc() 
         await queue.update_job(
             batch_id, job_id,
             status=JobStatus.failed,

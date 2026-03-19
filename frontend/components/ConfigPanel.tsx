@@ -87,7 +87,7 @@ export default function ConfigPanel() {
             )
           })}
         </div>
-        <p className="text-[10px] text-gray-400">Engine: PaddleOCR</p>
+        <p className="text-[10px] text-gray-400">Engine: EasyOCR</p>
       </div>
 
       {/* Empty value */}

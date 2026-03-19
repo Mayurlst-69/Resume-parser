@@ -2,32 +2,49 @@ import re
 import os
 import json
 import httpx
+import asyncio
 from api.models import ExtractedFields, ParseConfig
-import asyncio  
+from extractors.heuristic_extractor import extract_name_heuristic, extract_position_heuristic
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 #GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_MODEL = "llama-3.1-8b-instant"
 
-# ── Clean TEXT ─────────────────────────────────────────────────────────────
+# ── Clean TEXT ────────────────────────────────────────────────────────────────
 
 def clean_text(text: str) -> str:
     """Remove null bytes, fix broken spacing from bad PDF font encoding."""
-    # Remove null bytes and other control characters
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
-    # Collapse multiple spaces into one
     text = re.sub(r' {2,}', ' ', text)
-    # Fix spaced-out English
     text = re.sub(r'\b([A-Z])(?: ([A-Z]))+\b', lambda m: m.group(0).replace(' ', ''), text)
     return text.strip()
 
-# ── Regex patterns ─────────────────────────────────────────────────────────────
+
+# ── Certainty parser ──────────────────────────────────────────────────────────
+
+def parse_llm_value(raw) -> tuple[str | None, str]:
+    """
+    Parse LLM field value into (value, certainty).
+        (value, "confident") — found and sure
+        (None,  "unsure")    — found but not sure → "none" from LLM
+        (None,  "absent")    — not in resume at all → null from LLM
+    """
+    if raw is None:
+        return None, "absent"
+    if str(raw).strip().lower() in ("none", "null", ""):
+        return None, "unsure"
+    return str(raw).strip(), "confident"
+
+
+# ── Regex patterns ────────────────────────────────────────────────────────────
 
 EMAIL_RE = re.compile(
     r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
 )
 
-PHONE_RE = re.compile(r'(?<!\d)(?:\+66[\s\-.]?[6-9]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4}|0[689]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4}|02[\s\-.]?\d{3,4}[\s\-.]?\d{4}|0[3-7]\d[\s\-.]?\d{3}[\s\-.]?\d{4})(?!\d)')
+PHONE_RE = re.compile(
+    r'(?<!\d)(?:\+66[\s\-.]?[6-9]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4}|0[689]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4}|02[\s\-.]?\d{3,4}[\s\-.]?\d{4}|0[3-7]\d[\s\-.]?\d{3}[\s\-.]?\d{4})(?!\d)'
+)
 
 
 def extract_email(text: str) -> tuple[str | None, float]:
@@ -36,18 +53,50 @@ def extract_email(text: str) -> tuple[str | None, float]:
         return match.group(0).strip(), 0.97
     return None, 0.0
 
+def clean_email(email: str) -> str | None:
+    if not email:
+        return None
+    cleaned = re.sub(r'\s+', '', email)
+    if EMAIL_RE.fullmatch(cleaned):
+        return cleaned
+    return None
 
 def extract_phone(text: str) -> tuple[str | None, float]:
     match = PHONE_RE.search(text)
     if match:
         raw = match.group(0).strip()
-        # Clean up spacing
         phone = re.sub(r"[\s]", " ", raw).strip()
         return phone, 0.93
     return None, 0.0
 
+def format_phone(phone: str | None) -> str | None:
+    """
+    Normalize Thai phone to xxx-xxx-xxxx format.
+    Works with: 0812345678, 081 234 5678, 081-234-5678, +66812345678
+    """
+    if not phone:
+        return phone
 
-# ── Groq LLM extraction ────────────────────────────────────────────────────────
+    # Strip everything except digits
+    digits = re.sub(r'\D', '', phone)
+
+    # +66xxxxxxxxx → 0xxxxxxxxx
+    if digits.startswith('66') and len(digits) == 11:
+        digits = '0' + digits[2:]
+
+    # Format 10-digit Thai mobile: 081-234-5678
+    if len(digits) == 10:
+        return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+
+    # Format 9-digit landline: 02-123-4567
+    if len(digits) == 9:
+        return f"{digits[:2]}-{digits[2:5]}-{digits[5:]}"
+
+    # Unknown format — return cleaned digits
+    return digits
+
+
+# ── Groq LLM extraction ───────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a resume parser. Extract fields from resume text and return JSON only.
 
@@ -55,31 +104,40 @@ Output ONLY this JSON object, no other text:
 {"name": null, "position": null, "email": null, "phone": null}
 
 Rules:
-- name: candidate full name (Thai or English), usually first line. null if not found.
-- position: job title or applied position. null if not found.
-- email: full email address. null if not found or incomplete.
-- phone: Thai phone number (10 digits). null if not found.
+- name: candidate full name (Thai or English), usually first line.
+- position: job title or applied position.
+- email: full email address.
+- phone: Thai phone number (10 digits).
+
+For each field use exactly one of these values:
+1. The actual value — if you found it and are confident
+2. "none" — if you see something that might be the field but are not sure
+3. JSON null — if the field is clearly not present in the resume at all
+
 - Use JSON null not string "null"
 - NO explanations, NO examples, NO other text — JSON only."""
+
 
 async def extract_fields_groq(
     text: str,
     config: ParseConfig,
-    ) -> tuple[str | None, str | None, float, str | None, str | None]:
+) -> tuple[str | None, str, str | None, str, float, str | None, str | None]:
+    """
+    Returns (name, name_cert, position, position_cert, conf, email_llm, phone_llm)
+    """
     api_key = os.getenv("GROQ_API_KEY", "")
     if not api_key:
-        return None, None, 0.0, None, None
+        return None, "absent", None, "absent", 0.0, None, None
 
     snippet = clean_text(text)[:4000]
-
     user_msg = (
         "Extract name, position, email, and phone from this resume.\n\n"
         f"Resume text:\n{snippet}"
     )
 
-    # Retry up to 4 times with backoff for rate limit 429
     max_retries = 4
     for attempt in range(max_retries):
+        await asyncio.sleep(1.5)
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
@@ -99,9 +157,8 @@ async def extract_fields_groq(
                     },
                 )
 
-                # Rate limit hit — wait and retry
                 if resp.status_code == 429:
-                    wait = 3 * (attempt + 1)  # 3s, 6s, 9s, 12s
+                    wait = 3 * (attempt + 1)
                     await asyncio.sleep(wait)
                     continue
 
@@ -109,57 +166,128 @@ async def extract_fields_groq(
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"].strip()
                 content = re.sub(r"```json|```", "", content).strip()
-                print(f"[GROQ RAW] {content}") 
+                print(f"[GROQ RAW] {content}") # --> for debugging
                 parsed = json.loads(content)
 
-                name = parsed.get("name") or None
-                position = parsed.get("position") or None
-                email_llm = (
+                name,     name_cert     = parse_llm_value(parsed.get("name"))
+                position, position_cert = parse_llm_value(parsed.get("position"))
+                email_llm, _            = parse_llm_value(
                     parsed.get("email") or
                     next((v for k, v in parsed.items() if "mail" in k.lower()), None)
-                ) or None
-                phone_llm = parsed.get("phone") or None
+                )
+                phone_llm, _ = parse_llm_value(parsed.get("phone"))
 
-                if name == "null": name = None
-                if position == "null": position = None
-                if email_llm == "null": email_llm = None
-                if phone_llm == "null": phone_llm = None
-                
-                found = sum(1 for v in [name, position] if v)
-                conf = 0.90 if found == 2 else (0.75 if found == 1 else 0.0)
-                return name, position, conf, email_llm, phone_llm
+                # Clean email spaces
+                if email_llm:
+                    email_llm = clean_email(email_llm)
+
+                found_conf = sum(1 for c in [name_cert, position_cert] if c == "confident")
+                found_any  = sum(1 for c in [name_cert, position_cert] if c != "absent")
+                conf = 0.90 if found_conf == 2 else (0.75 if found_conf == 1 else (0.40 if found_any > 0 else 0.0))
+
+                return name, name_cert, position, position_cert, conf, email_llm, phone_llm
 
         except Exception as e:
-            print(f"[GROQ ERROR] attempt={attempt} error={e}")
+            print(f"[GROQ ERROR] attempt={attempt} error={e}") # --> for debugging
             if attempt < max_retries - 1:
                 await asyncio.sleep(2)
             continue
 
-    return None, None, 0.0, None, None
+    return None, "absent", None, "absent", 0.0, None, None
 
 
-# ── Main entry point ───────────────────────────────────────────────────────────
+# ── Heuristic validation: sanity-check AI output ─────────────────────────────
+
+def sanity_check_name(name: str | None, text: str) -> tuple[str | None, str]:
+    """
+    Cross-check AI name result against heuristic.
+    If AI confident but heuristic disagrees strongly → downgrade to unsure.
+    """
+    if name is None:
+        return name, "absent"
+
+    # Hallucination signals
+    hallucination_patterns = [
+        r'^\d+$',                          # pure numbers
+        r'(company|บริษัท|ltd|co\.,)',      # company name
+        r'(university|มหาวิทยาลัย|วิทยาลัย|การศึกษา|College|University)',        # university
+        r'.{81,}',                          # too long (>80 chars)
+        r'^(resume|cv|curriculum vitae)',   # document title
+    ]
+    for pat in hallucination_patterns:
+        if re.search(pat, name, re.IGNORECASE):
+            print(f"[HEURISTIC] name hallucination detected: {name!r}")
+            return None, "unsure"
+
+    return name, "confident"
+
+
+def sanity_check_position(position: str | None) -> tuple[str | None, str]:
+    """Basic sanity check for position field."""
+    if position is None:
+        return None, "absent"
+    if len(position) > 100 or re.match(r'^\d+$', position):
+        print(f"[HEURISTIC] position suspicious: {position!r}")
+        return None, "unsure"
+    return position, "confident"
+
+# ── Main entry point ──────────────────────────────────────────────────────────
 
 async def parse_fields(text: str, config: ParseConfig) -> ExtractedFields:
     """
-    Hybrid extraction:
-        - email, phone → regex (deterministic)
-        - name, position → Groq LLM
-    Returns ExtractedFields with confidence score.
+    3-layer extraction:
+        Layer 1: Regex (email, phone) — deterministic
+        Layer 2: LLM (name, position, fallback email/phone)
+        Layer 3: Heuristic fallback when AI fails or is unsure
     """
     text = clean_text(text)
     empty = None if config.empty_value == "null" else ""
 
+
+    # ── Layer 1:Regex ──
     email_regex, email_conf = extract_email(text) if config.extract_email else (empty, 0)
     phone_regex, phone_conf = extract_phone(text) if config.extract_phone else (empty, 0)
 
-    name, position, llm_conf, email_llm, phone_llm = await extract_fields_groq(text, config)
+    # ── Layer 2:LLM ──
+    name, name_cert, position, position_cert, llm_conf, email_llm, phone_llm = \
+        await extract_fields_groq(text, config)
+    
+    # ── Sanity check AI output (catch hallucinations) ──
+    name,     name_cert     = sanity_check_name(name, text)
+    position, position_cert = sanity_check_position(position)
+
+    # ── Layer 3: Heuristic fallback ──
+    # Only kick in when AI failed (absent) or unsure
+    if config.extract_name and name_cert in ("absent", "unsure"):
+        h_name, h_conf = extract_name_heuristic(text)
+        if h_name:
+            print(f"[HEURISTIC] name fallback: {h_name!r} conf={h_conf}")
+            name      = h_name
+            name_cert = "confident" if h_conf >= 0.75 else "unsure"
+            # Blend confidence — heuristic is less reliable than Groq
+            llm_conf  = max(llm_conf, h_conf * 0.85)
+
+    if config.extract_position and position_cert in ("absent", "unsure"):
+        h_pos, h_conf = extract_position_heuristic(text)
+        if h_pos:
+            print(f"[HEURISTIC] position fallback: {h_pos!r} conf={h_conf}")
+            position      = h_pos
+            position_cert = "confident" if h_conf >= 0.75 else "unsure"
+            llm_conf      = max(llm_conf, h_conf * 0.85)
+
+    # ── Resolve final values ──
+    def resolve(value, cert):
+        """absent → empty (follow toggle), unsure → None (UI shows ?), confident → value"""
+        if value is not None:
+            return value
+        if cert == "unsure":
+            return None   # UI bypasses toggle, shows "?"
+        return empty      # absent → follow toggle
 
     # Regex wins if found, Groq fills in as fallback
     final_email = email_regex or email_llm or empty
-    final_phone = phone_regex or phone_llm or empty
-    
-    # Recalculate email/phone confidence
+    final_phone = format_phone(phone_regex or phone_llm) or empty
+
     email_final_conf = email_conf if email_regex else (0.75 if email_llm else 0.0)
     phone_final_conf = phone_conf if phone_regex else (0.75 if phone_llm else 0.0)
 
@@ -174,8 +302,10 @@ async def parse_fields(text: str, config: ParseConfig) -> ExtractedFields:
     confidence = round(sum(scores) / len(scores), 2) if scores else 0.0
 
     return ExtractedFields(
-        name=name or empty,
-        position=position or empty,
+        name=resolve(name, name_cert),
+        name_cert=name_cert,
+        position=resolve(position, position_cert),
+        position_cert=position_cert,
         phone=final_phone,
         email=final_email,
         confidence=confidence,
