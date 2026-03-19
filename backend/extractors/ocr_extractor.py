@@ -3,28 +3,28 @@ import tempfile
 from PIL import Image
 import pytesseract 
 from pdf2image import convert_from_path
-import easyocr
+import uuid
 
 # Tesseract path from env (Windows)
 tesseract_path = os.getenv("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
 # EasyOCR — lazy init (first load downloads models ~500MB, cached after)
-_easy_reader = None
+_readers: dict[str, object] = {}
 
 def _get_reader(languages: list[str]):
-    global _easy_reader
-    # EasyOCR language codes: 'en' for English, 'th' for Thai
     lang_map = {"eng": "en", "tha": "th"}
-    easy_langs = list({lang_map.get(l, "en") for l in languages})
+    easy_langs = sorted({lang_map.get(l, "en") for l in languages})
+    cache_key = ",".join(easy_langs)
 
-    if _easy_reader is None:
+    if cache_key not in _readers:
         try:
             import easyocr
-            _easy_reader = easyocr.Reader(easy_langs, gpu=False, verbose=False)
+            _readers[cache_key] = easyocr.Reader(easy_langs, gpu=False, verbose=False)
         except Exception:
-            _easy_reader = None
-    return _easy_reader
+            _readers[cache_key] = None
+
+    return _readers[cache_key]
 
 
 def ocr_image_file(file_path: str, languages: list[str] = ["eng", "tha"]) -> tuple[str, float]:
@@ -49,8 +49,10 @@ def ocr_scanned_pdf(file_path: str, languages: list[str] = ["eng", "tha"]) -> tu
     all_texts = []
     all_confs = []
 
+    job_id = uuid.uuid4().hex
+
     for i, img in enumerate(images):
-        tmp_path = os.path.join(tempfile.gettempdir(), f"_ocr_page_{i}.png")
+        tmp_path = os.path.join(tempfile.gettempdir(), f"_ocr_{job_id}_page_{i}.png")
         img.save(tmp_path, "PNG")
         try:
             text, conf = _ocr_with_fallback(tmp_path, languages)

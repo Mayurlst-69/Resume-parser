@@ -38,6 +38,7 @@ class ParseConfig(BaseModel):
     extract_email: bool = True
     languages: List[str] = ["eng", "tha"]
     empty_value: str = "null"  # "null" or ""
+    extract_mode: str = "concise"  # "concise" | "general"
 
 
 class BatchParseResponse(BaseModel):

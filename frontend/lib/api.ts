@@ -14,6 +14,7 @@ export async function uploadBatch(
   form.append('extract_email', String(config.extract_email))
   form.append('languages', config.languages.join(','))
   form.append('empty_value', config.empty_value === 'null' ? 'null' : '')
+  form.append('extract_mode', config.extract_mode)
 
   const res = await fetch(`${API}/api/parse`, {
     method: 'POST',

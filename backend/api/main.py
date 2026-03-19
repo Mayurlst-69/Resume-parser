@@ -21,7 +21,7 @@ from extractors.ocr_extractor import ocr_image_file, ocr_scanned_pdf
 from extractors.field_parser import parse_fields
 from exporters.excel_exporter import build_excel
 
-GROQ_SEMAPHORE = asyncio.Semaphore(3)  # max 3 concurrent Groq calls
+GROQ_SEMAPHORE = asyncio.Semaphore(2)  # max 2 concurrent Groq calls
 app = FastAPI(title="Resume Parser API", version="1.0.0")
 
 app.add_middleware(
@@ -50,6 +50,7 @@ async def parse_batch(
     extract_email: bool = Form(True),
     languages: str = Form("eng,tha"),
     empty_value: str = Form("null"),
+    extract_mode: str = Form("concise"),
 ):
     config = ParseConfig(
         extract_name=extract_name,
@@ -58,10 +59,12 @@ async def parse_batch(
         extract_email=extract_email,
         languages=languages.split(","),
         empty_value=empty_value,
+        extract_mode=extract_mode,
     )
 
     batch_id = queue.new_batch(config)
     jobs = []
+    skipped = []
 
     for file in files:
         size_kb = 0.0
@@ -76,8 +79,10 @@ async def parse_batch(
 
             job = queue.add_job(batch_id, file.filename or "unknown", size_kb)
             jobs.append((job.job_id, tmp.name, suffix))
-        except Exception:
-            pass
+        except Exception as e:
+            fname = getattr(file, "filename", "unknown") or "unknown"
+            print(f"[UPLOAD ERROR] {fname}: {e}")
+            skipped.append(fname)
 
     # Fire off all jobs concurrently in background
     background_tasks.add_task(run_all_jobs, batch_id, jobs)
@@ -85,6 +90,7 @@ async def parse_batch(
     return {
         "batch_id": batch_id,
         "jobs": queue.get_batch(batch_id),
+        "skipped": skipped,
     }
 
 
@@ -290,7 +296,9 @@ async def export_history_excel(batch_id: str):
             error=r["error"],
             result=ExtractedFields(
                 name=r["name"],
+                name_cert=r.get("name_cert") or "absent",
                 position=r["position"],
+                position_cert=r.get("position_cert") or "absent",
                 phone=r["phone"],
                 email=r["email"],
                 confidence=r["confidence"] or 0,

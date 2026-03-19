@@ -19,10 +19,59 @@ def clean_text(text: str) -> str:
     text = re.sub(r'\b([A-Z])(?: ([A-Z]))+\b', lambda m: m.group(0).replace(' ', ''), text)
     return text.strip()
 
+# ── Header section extractor ─────────────────────────────────────────────────
+
+def extract_contact_section(text: str) -> str:
+    """
+    Smart section extractor 
+
+    Vision: Token optimization must NOT affect accuracy.
+    - Send only AI contact section that is relevant (name/position/email/phone)
+    - Stop when section break such as EXPERIENCE, EDUCATION
+    - If not found section break → Use 40 lines (added more 25 for accuracy)
+    """
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+
+    # Section breaks — When found these text, Assume that contact section have done
+    SECTION_BREAKS = re.compile(
+        r'^(ประสบการณ์|ประสบการณ์การทำงาน|การศึกษา|ประวัติการศึกษา|'
+        r'experience|work experience|work history|education|'
+        r'academic|qualification|'
+        r'ทักษะ|ความสามารถ|skills|abilities|'
+        r'references|เอกสารอ้างอิง|'
+        r'โครงการ|project|portfolio|'
+        r'รางวัล|award|achievement|'
+        r'กิจกรรม|activity|activities)'
+        r'\s*[:\-]?\s*$',
+        re.IGNORECASE
+    )
+
+    contact_lines = []
+    for line in lines:
+        # Stop when section break (have atleast 5 paragraph)
+        if SECTION_BREAKS.match(line) and len(contact_lines) >= 5:
+            break
+        contact_lines.append(line)
+
+    # If not found any section break  → Use 40 lines
+    # 40 > 25 for accuracy, Not token saving
+    if len(contact_lines) == len(lines):
+        contact_lines = lines[:40]
+
+    return '\n'.join(contact_lines)
+
+# ── General extract section ───────────────────────────────────────────────────
+
+def extract_general_section(text: str) -> str:  
+    """
+    General Extract mode — Send Full text (safe, no data loss)
+    Use when resume has weird format or name not in normally position by default
+    """
+    return clean_text(text)[:4000]
 
 # ── Certainty parser ──────────────────────────────────────────────────────────
 
-def parse_llm_value(raw) -> tuple[str | None, str]:
+def parse_llm_value(raw: str | None) -> tuple[str | None, str]:
     """
     Parse LLM field value into (value, certainty).
         (value, "confident") — found and sure
@@ -129,10 +178,20 @@ async def extract_fields_groq(
     if not api_key:
         return None, "absent", None, "absent", 0.0, None, None
 
-    snippet = clean_text(text)[:4000]
+    # ── Mode switch ──
+    # concise: smart section break — less noise, better accuracy, fewer tokens
+    # general: full text [:4000]   — safe fallback for unusual resume formats
+    if config.extract_mode == "concise":
+        context = extract_contact_section(clean_text(text))
+        mode_hint = "The text below is the contact/header section of the resume."
+    else:
+        context = extract_general_section(text)
+        mode_hint = "The text below is the full resume content."
+
     user_msg = (
-        "Extract name, position, email, and phone from this resume.\n\n"
-        f"Resume text:\n{snippet}"
+        "Extract name, position, email, and phone from this resume.\n"
+        f"{mode_hint}\n\n"
+        f"Resume text:\n{context}"
     )
 
     max_retries = 4
