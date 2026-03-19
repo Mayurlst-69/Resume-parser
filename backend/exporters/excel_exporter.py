@@ -20,12 +20,15 @@ COLUMNS = [
     ("Position",     "position"),
     ("Phone",        "phone"),
     ("Email",        "email"),
+    ("Address",      "address"),
+    ("Education",    "education"),
+    ("Experience",   "experience"),
     ("Confidence",   "confidence"),
     ("Source File",  "filename"),
     ("Parse Method", "parse_method"),
     ("Status",       "status"),
 ]
-COL_WIDTHS = [25, 28, 20, 32, 12, 40, 16, 14]
+COL_WIDTHS = [25, 28, 18, 30, 35, 35, 40, 12, 38, 14, 12]
 
 UNSURE_DISPLAY = "?"   # what Excel shows for unsure fields
 
@@ -78,6 +81,9 @@ def build_excel(jobs: list[ParseJob], config=None) -> bytes:
             "position":     r.position if r else None,
             "phone":        r.phone if r else None,
             "email":        r.email if r else None,
+            "address":      r.address if r else None,
+            "education":    r.education if r else None,
+            "experience":   r.experience if r else None,
             "confidence":   f"{int(r.confidence * 100)}%" if r else "—",
             "filename":     job.filename,
             "parse_method": job.parse_method or "—",

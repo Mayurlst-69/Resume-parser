@@ -7,6 +7,9 @@ const FIELDS = [
   { key: 'extract_position', label: 'Position' },
   { key: 'extract_phone', label: 'Phone' },
   { key: 'extract_email', label: 'Email' },
+  { key: 'extract_address',    label: 'Address',    heavy: false },
+  { key: 'extract_education',  label: 'Education',  heavy: true  },
+  { key: 'extract_experience', label: 'Experience', heavy: true  },
 ] as const
 
 const LANGS = [
@@ -94,7 +97,7 @@ export default function ConfigPanel() {
             Extract fields
           </p>
           <div className="flex flex-wrap gap-2">
-            {FIELDS.map(({ key, label }) => {
+            {FIELDS.map(({ key, label, heavy }) => {
               const on = config[key]
               return (
                 <button
@@ -112,6 +115,9 @@ export default function ConfigPanel() {
                     on ? 'bg-[--teal]' : 'bg-gray-300'
                   )} />
                   {label}
+                  {heavy && (
+                    <span className="text-[9px] text-amber-500 ml-0.5">full text</span>
+                  )}
                 </button>
               )
             })}

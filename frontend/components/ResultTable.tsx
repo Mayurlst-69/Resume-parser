@@ -82,7 +82,7 @@ export default function ResultTable({ jobs, batchId }: Props) {
         <table className="w-full text-xs" style={{ minWidth: '900px' }}>
           <thead>
             <tr className="bg-gray-50">
-              {['Name', 'Position', 'Phone', 'Email', 'Conf.', 'Source file', 'Method'].map((h) => (
+              {['Name', 'Position', 'Phone', 'Email', 'Address', 'Education', 'Experience', 'Conf.', 'Source file', 'Method'].map((h) => (
                 <th key={h} className="text-left px-4 py-2.5 text-[10px] font-medium text-gray-400 uppercase tracking-wider whitespace-nowrap">
                   {h}
                 </th>
@@ -113,6 +113,21 @@ export default function ResultTable({ jobs, batchId }: Props) {
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                     <Cell value={job.result?.email ?? null} />
                   </td>
+                  <td className="px-4 py-3 text-gray-600 max-w-[160px]">
+                    <span className="block truncate text-[11px]" title={job.result?.address ?? ''}>
+                      <Cell value={job.result?.address ?? null} />
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 max-w-[180px]">
+                    <span className="block truncate text-[11px]" title={job.result?.education ?? ''}>
+                      <Cell value={job.result?.education ?? null} />
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 max-w-[180px]">
+                    <span className="block truncate text-[11px]" title={job.result?.experience ?? ''}>
+                      <Cell value={job.result?.experience ?? null} />
+                    </span>
+                  </td>
                   <td className="px-4 py-3">
                     {job.result ? <ConfBadge value={job.result.confidence} /> : '—'}
                   </td>
@@ -129,7 +144,7 @@ export default function ResultTable({ jobs, batchId }: Props) {
             })}
             {doneJobs.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
                   Results will appear here as files are parsed
                 </td>
               </tr>

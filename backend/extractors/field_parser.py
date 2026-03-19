@@ -7,8 +7,8 @@ from api.models import ExtractedFields, ParseConfig
 from extractors.heuristic_extractor import extract_name_heuristic, extract_position_heuristic
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-#GROQ_MODEL = "llama-3.3-70b-versatile"
-GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+#GROQ_MODEL = "llama-3.1-8b-instant"
 
 # ── Clean TEXT ────────────────────────────────────────────────────────────────
 
@@ -144,19 +144,38 @@ def format_phone(phone: str | None) -> str | None:
     # Unknown format — return cleaned digits
     return digits
 
+# ── Address regex ─────────────────────────────────────────────────────────────
+
+THAI_ADDRESS_RE = re.compile(
+    r'(?:ที่อยู่|address|บ้านเลขที่|เลขที่|อาคาร)\s*[:\-]?\s*(.{10,120})'
+    r'|(\d+[/\d]*\s+.{5,80}(?:จังหวัด|จ\.|กรุงเทพ|กทม\.|อำเภอ|อ\.|เขต|ตำบล|ต\.|แขวง|ถนน|ถ\.|หมู่|ม\.|ซอย|ซ\.)[^\n]{0,50}(?:\d{5})?)', # Thai address patterns — จังหวัด/ถนน/ตำบล/อำเภอ
+    re.IGNORECASE
+)
+
+def extract_address(text: str) -> tuple[str | None, float]:
+    """Extract address from text using regex."""
+    match = THAI_ADDRESS_RE.search(text)
+    if match:
+        addr = (match.group(1) or match.group(2) or "").strip()
+        if addr and len(addr) > 10:
+            return addr[:150], 0.72
+    return None, 0.0
+
 
 # ── Groq LLM extraction ───────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a resume parser. Extract fields from resume text and return JSON only.
 
 Output ONLY this JSON object, no other text:
-{"name": null, "position": null, "email": null, "phone": null}
+{"name": null, "position": null, "email": null, "phone": null, "education": null, "experience": null}
 
 Rules:
 - name: candidate full name (Thai or English), usually first line.
 - position: job title or applied position.
 - email: full email address.
 - phone: Thai phone number (10 digits).
+- education: highest education level and institution. Summarize in 1-2 lines max.
+- experience: most recent job title + company + duration. Summarize in 1-2 lines max.
 
 For each field use exactly one of these values:
 1. The actual value — if you found it and are confident
@@ -170,26 +189,35 @@ For each field use exactly one of these values:
 async def extract_fields_groq(
     text: str,
     config: ParseConfig,
-) -> tuple[str | None, str, str | None, str, float, str | None, str | None]:
+) -> tuple[str | None, str, str | None, str, float, str | None, str | None, str | None, str | None]:
     """
-    Returns (name, name_cert, position, position_cert, conf, email_llm, phone_llm)
+    Returns (name, name_cert, position, position_cert, conf, email_llm, phone_llm, education_llm, experience_llm)
     """
     api_key = os.getenv("GROQ_API_KEY", "")
     if not api_key:
-        return None, "absent", None, "absent", 0.0, None, None
+        return None, "absent", None, "absent", 0.0, None, None, None, None
 
     # ── Mode switch ──
-    # concise: smart section break — less noise, better accuracy, fewer tokens
-    # general: full text [:4000]   — safe fallback for unusual resume formats
-    if config.extract_mode == "concise":
-        context = extract_contact_section(clean_text(text))
-        mode_hint = "The text below is the contact/header section of the resume."
-    else:
+    # education/experience live in body section → always need full text
+    # concise: contact section only (name/position/email/phone)
+    # general: full text for all fields — safe fallback for unusual resume formats
+    need_full_text = config.extract_education or config.extract_experience
+    if need_full_text or config.extract_mode == "general":
         context = extract_general_section(text)
         mode_hint = "The text below is the full resume content."
+    else:
+        context = extract_contact_section(clean_text(text))
+        mode_hint = "The text below is the contact/header section of the resume."
+
+    # Build requested fields list for user message
+    requested = ["name", "position", "email", "phone"]
+    if config.extract_education:
+        requested.append("education")
+    if config.extract_experience:
+        requested.append("experience")
 
     user_msg = (
-        "Extract name, position, email, and phone from this resume.\n"
+        f"Extract these fields: {', '.join(requested)}.\n"
         f"{mode_hint}\n\n"
         f"Resume text:\n{context}"
     )
@@ -212,7 +240,7 @@ async def extract_fields_groq(
                             {"role": "user", "content": user_msg},
                         ],
                         "temperature": 0.0,
-                        "max_tokens": 200,
+                        "max_tokens": 400,
                     },
                 )
 
@@ -235,6 +263,8 @@ async def extract_fields_groq(
                     next((v for k, v in parsed.items() if "mail" in k.lower()), None)
                 )
                 phone_llm, _ = parse_llm_value(parsed.get("phone"))
+                education_llm, _ = parse_llm_value(parsed.get("education"))
+                experience_llm, _ = parse_llm_value(parsed.get("experience"))
 
                 # Clean email spaces
                 if email_llm:
@@ -244,7 +274,7 @@ async def extract_fields_groq(
                 found_any  = sum(1 for c in [name_cert, position_cert] if c != "absent")
                 conf = 0.90 if found_conf == 2 else (0.75 if found_conf == 1 else (0.40 if found_any > 0 else 0.0))
 
-                return name, name_cert, position, position_cert, conf, email_llm, phone_llm
+                return name, name_cert, position, position_cert, conf, email_llm, phone_llm, education_llm, experience_llm
 
         except Exception as e:
             print(f"[GROQ ERROR] attempt={attempt} error={e}") # --> for debugging
@@ -252,7 +282,7 @@ async def extract_fields_groq(
                 await asyncio.sleep(2)
             continue
 
-    return None, "absent", None, "absent", 0.0, None, None
+    return None, "absent", None, "absent", 0.0, None, None, None, None
 
 
 # ── Heuristic validation: sanity-check AI output ─────────────────────────────
@@ -306,9 +336,10 @@ async def parse_fields(text: str, config: ParseConfig) -> ExtractedFields:
     # ── Layer 1:Regex ──
     email_regex, email_conf = extract_email(text) if config.extract_email else (empty, 0)
     phone_regex, phone_conf = extract_phone(text) if config.extract_phone else (empty, 0)
+    address_regex, addr_conf = extract_address(text) if config.extract_address else (empty, 0)
 
     # ── Layer 2:LLM ──
-    name, name_cert, position, position_cert, llm_conf, email_llm, phone_llm = \
+    name, name_cert, position, position_cert, llm_conf, email_llm, phone_llm, education_llm, experience_llm = \
         await extract_fields_groq(text, config)
     
     # ── Sanity check AI output (catch hallucinations) ──
@@ -346,6 +377,9 @@ async def parse_fields(text: str, config: ParseConfig) -> ExtractedFields:
     # Regex wins if found, Groq fills in as fallback
     final_email = email_regex or email_llm or empty
     final_phone = format_phone(phone_regex or phone_llm) or empty
+    final_address = address_regex or empty
+    final_edu     = education_llm or empty if config.extract_education else empty
+    final_exp     = experience_llm or empty if config.extract_experience else empty
 
     email_final_conf = email_conf if email_regex else (0.75 if email_llm else 0.0)
     phone_final_conf = phone_conf if phone_regex else (0.75 if phone_llm else 0.0)
@@ -367,5 +401,8 @@ async def parse_fields(text: str, config: ParseConfig) -> ExtractedFields:
         position_cert=position_cert,
         phone=final_phone,
         email=final_email,
+        address=final_address,
+        education=final_edu,
+        experience=final_exp,
         confidence=confidence,
     )
