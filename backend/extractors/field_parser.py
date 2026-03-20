@@ -6,9 +6,116 @@ import asyncio
 from api.models import ExtractedFields, ParseConfig
 from extractors.heuristic_extractor import extract_name_heuristic, extract_position_heuristic
 
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
-#GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_API_URL    = "https://api.groq.com/openai/v1/chat/completions"
+OPENAI_API_URL  = "https://api.openai.com/v1/chat/completions"
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+GOOGLE_API_URL  = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+
+# Default model — overridable from UI via ParseConfig.groq_model
+GROQ_MODEL_DEFAULT = "llama-3.3-70b-versatile"
+
+# ── All available models by provider ─────────────────────────────────────────
+ALL_MODELS = [
+    # Groq — Free tier
+    {
+        "provider": "groq", "provider_label": "Groq (Free)",
+        "id": "llama-3.3-70b-versatile",
+        "label": "Llama 3.3 70B",
+        "context": "128k", "speed": "fast",
+        "desc": "Meta's best open model. Recommended for Thai resume parsing.",
+        "free": True,
+    },
+    {
+        "provider": "groq", "provider_label": "Groq (Free)",
+        "id": "llama-3.1-8b-instant",
+        "label": "Llama 3.1 8B",
+        "context": "128k", "speed": "fastest",
+        "desc": "Lightweight and fast. Separate quota from 70B.",
+        "free": True,
+    },
+    {
+        "provider": "groq", "provider_label": "Groq (Free)",
+        "id": "gemma2-9b-it",
+        "label": "Gemma 2 9B",
+        "context": "8k", "speed": "fast",
+        "desc": "Google's open model hosted on Groq.",
+        "free": True,
+    },
+    {
+        "provider": "groq", "provider_label": "Groq (Free)",
+        "id": "mixtral-8x7b-32768",
+        "label": "Mixtral 8x7B",
+        "context": "32k", "speed": "fast",
+        "desc": "Mistral's MoE model. Great for long resumes.",
+        "free": True,
+    },
+    # OpenAI
+    {
+        "provider": "openai", "provider_label": "OpenAI",
+        "id": "gpt-4o",
+        "label": "GPT-4o",
+        "context": "128k", "speed": "fast",
+        "desc": "OpenAI's flagship multimodal model. Excellent accuracy.",
+        "free": False,
+    },
+    {
+        "provider": "openai", "provider_label": "OpenAI",
+        "id": "gpt-4o-mini",
+        "label": "GPT-4o Mini",
+        "context": "128k", "speed": "fastest",
+        "desc": "Fast and affordable. Great balance of speed and accuracy.",
+        "free": False,
+    },
+    {
+        "provider": "openai", "provider_label": "OpenAI",
+        "id": "gpt-4-turbo",
+        "label": "GPT-4 Turbo",
+        "context": "128k", "speed": "medium",
+        "desc": "High accuracy. Best for complex Thai-English mixed resumes.",
+        "free": False,
+    },
+    # Anthropic
+    {
+        "provider": "anthropic", "provider_label": "Anthropic",
+        "id": "claude-sonnet-4-6",
+        "label": "Claude Sonnet 4.6",
+        "context": "200k", "speed": "fast",
+        "desc": "Anthropic's balanced model. Strong multilingual understanding.",
+        "free": False,
+    },
+    {
+        "provider": "anthropic", "provider_label": "Anthropic",
+        "id": "claude-opus-4-6",
+        "label": "Claude Opus 4.6",
+        "context": "200k", "speed": "medium",
+        "desc": "Anthropic's most powerful model. Best for complex documents.",
+        "free": False,
+    },
+    # Google
+    {
+        "provider": "google", "provider_label": "Google",
+        "id": "gemini-1.5-pro",
+        "label": "Gemini 1.5 Pro",
+        "context": "1M", "speed": "fast",
+        "desc": "Google's best model. Massive context window.",
+        "free": False,
+    },
+    {
+        "provider": "google", "provider_label": "Google",
+        "id": "gemini-1.5-flash",
+        "label": "Gemini 1.5 Flash",
+        "context": "1M", "speed": "fastest",
+        "desc": "Fast and affordable. Good Thai language support.",
+        "free": False,
+    },
+]
+
+PROVIDER_API_URLS = {
+    "groq":      GROQ_API_URL,
+    "openai":    OPENAI_API_URL,
+    "anthropic": ANTHROPIC_API_URL,
+    "google":    GOOGLE_API_URL,
+}
 
 # ── Clean TEXT ────────────────────────────────────────────────────────────────
 
@@ -193,7 +300,7 @@ async def extract_fields_groq(
     """
     Returns (name, name_cert, position, position_cert, conf, email_llm, phone_llm, education_llm, experience_llm)
     """
-    api_key = os.getenv("GROQ_API_KEY", "")
+    api_key = (config.api_keys or {}).get("groq") or os.getenv("GROQ_API_KEY", "")
     if not api_key:
         return None, "absent", None, "absent", 0.0, None, None, None, None
 
@@ -234,7 +341,7 @@ async def extract_fields_groq(
                         "Content-Type": "application/json",
                     },
                     json={
-                        "model": GROQ_MODEL,
+                        "model": config.groq_model or GROQ_MODEL_DEFAULT,
                         "messages": [
                             {"role": "system", "content": SYSTEM_PROMPT},
                             {"role": "user", "content": user_msg},

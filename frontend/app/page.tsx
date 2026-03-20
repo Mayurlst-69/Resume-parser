@@ -11,7 +11,7 @@ import clsx from 'clsx'
 
 export default function Home() {
   const {
-    batchId, jobs, config,
+    batchId, jobs, config, apiKeys,
     isUploading, setBatchId, setJobs, updateJob, setUploading, reset
   } = useParseStore()
 
@@ -32,7 +32,7 @@ export default function Home() {
     setUploading(true)
     reset()
     try {
-      const res = await uploadBatch(pendingFiles, config)
+      const res = await uploadBatch(pendingFiles, config, apiKeys)
       setBatchId(res.batch_id)
       setJobs(res.jobs)
       setPendingFiles([])
@@ -196,7 +196,7 @@ export default function Home() {
             {batchId && (
               <>
                 <JobQueue jobs={jobs} />
-                <ResultTable jobs={jobs} batchId={batchId} />
+                <ResultTable jobs={jobs} batchId={batchId} config={config} />
               </>
             )}
           </>

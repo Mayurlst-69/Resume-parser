@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 
 export type JobStatus = 'queued' | 'processing' | 'done' | 'failed' | 'low_confidence'
 export type Certainty = 'confident' | 'unsure' | 'absent'
@@ -37,17 +38,27 @@ export interface ParseConfig {
   languages: string[]
   empty_value: 'null' | ''
   extract_mode: 'concise' | 'general'
+  groq_model: string
+}
+
+export interface ApiKeys {
+  groq: string
+  openai: string
+  anthropic: string
+  google: string
 }
 
 interface ParseStore {
   batchId: string | null
   jobs: ParseJob[]
   config: ParseConfig
+  apiKeys: ApiKeys
   isUploading: boolean
   setBatchId: (id: string) => void
   setJobs: (jobs: ParseJob[]) => void
   updateJob: (update: Partial<ParseJob> & { job_id: string }) => void
   setConfig: (config: Partial<ParseConfig>) => void
+  setApiKey: (provider: keyof ApiKeys, key: string) => void
   setUploading: (v: boolean) => void
   reset: () => void
 }
@@ -63,24 +74,47 @@ const defaultConfig: ParseConfig = {
   languages: ['eng', 'tha'],
   empty_value: 'null',
   extract_mode: 'concise',
+  groq_model: 'llama-3.3-70b-versatile',
 }
 
-export const useParseStore = create<ParseStore>((set) => ({
-  batchId: null,
-  jobs: [],
-  config: defaultConfig,
-  isUploading: false,
+const defaultApiKeys: ApiKeys = {
+  groq: '',
+  openai: '',
+  anthropic: '',
+  google: '',
+}
 
-  setBatchId: (id) => set({ batchId: id }),
-  setJobs: (jobs) => set({ jobs }),
-  updateJob: (update) =>
-    set((state) => ({
-      jobs: state.jobs.map((j) =>
-        j.job_id === update.job_id ? { ...j, ...update } : j
-      ),
-    })),
-  setConfig: (partial) =>
-    set((state) => ({ config: { ...state.config, ...partial } })),
-  setUploading: (v) => set({ isUploading: v }),
-  reset: () => set({ batchId: null, jobs: [], isUploading: false }),
-}))
+export const useParseStore = create<ParseStore>()(
+  persist(
+    (set) => ({
+      batchId: null,
+      jobs: [],
+      config: defaultConfig,
+      apiKeys: defaultApiKeys,
+      isUploading: false,
+
+      setBatchId: (id) => set({ batchId: id }),
+      setJobs: (jobs) => set({ jobs }),
+      updateJob: (update) =>
+        set((state) => ({
+          jobs: state.jobs.map((j) =>
+            j.job_id === update.job_id ? { ...j, ...update } : j
+          ),
+        })),
+      setConfig: (partial) =>
+        set((state) => ({ config: { ...state.config, ...partial } })),
+      setApiKey: (provider, key) =>
+        set((state) => ({ apiKeys: { ...state.apiKeys, [provider]: key } })),
+      setUploading: (v) => set({ isUploading: v }),
+      reset: () => set({ batchId: null, jobs: [], isUploading: false }),
+    }),
+    {
+      name: 'resume-parser-store',
+      // persist config + apiKeys across sessions, not jobs
+      partialize: (state) => ({
+        config: state.config,
+        apiKeys: state.apiKeys,
+      }),
+    }
+  )
+)

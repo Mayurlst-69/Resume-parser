@@ -7,33 +7,32 @@
 *.pem
 
 # =========================
-# 🌐 2. ฝั่ง Frontend (Node.js & Next.js)
+# Frontend (Node.js & Next.js)
 # =========================
-# โฟลเดอร์เก็บไลบรารี (หนักมาก โหลดใหม่ได้)
+# Libs
 node_modules/
 frontend/node_modules/
 
-# ไฟล์ที่ได้จากการ Build ระบบ Next.js
+# Next.js
 .next/
 frontend/.next/
 out/
 build/
 
-# ไฟล์ Log แจ้งเตือน Error ต่างๆ
+# Log & Error 
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
 # =========================
-# 🐍 3. ฝั่ง Backend (Python & FastAPI)
+# Backend (Python & FastAPI)
 # =========================
-# โฟลเดอร์จำลองสภาพแวดล้อม (หนักมาก โหลดใหม่ได้)
 venv/
 env/
 .venv/
 backend/venv/
 
-# ไฟล์แคชและไฟล์ที่ Python แปลงรูปแล้ว (ขยะ)
+# cache Python
 __pycache__/
 *.pyc
 *.pyo
@@ -41,21 +40,34 @@ __pycache__/
 .pytest_cache/
 
 # =========================
-# 💻 4. ไฟล์ระบบและโปรแกรมเขียนโค้ด
+# system files
 # =========================
-# การตั้งค่า VSCode ส่วนตัว
 .vscode/
 *.code-workspace
 
-# ไฟล์ขยะของ Mac และ Windows
+# window
 .DS_Store
 Thumbs.db
 
-# ไฟล์ผลลัพธ์
+# result -f
 *.xlsx
 *.csv
 
-# ไฟล์อัปโหลดและไฟล์ที่ระบบสร้างขึ้น
+# Database & Runtime files
+# =========================
+backend/data/
+*.db
+*.db-shm
+*.db-wal
+
+# OCR temp files
+_ocr_*.png
+
+# Python type checking
+.mypy_cache/
+.ruff_cache/
+
+# Upload
 backend/uploads/
 backend/temp/
 frontend/public/uploads/
@@ -63,3 +75,7 @@ frontend/public/uploads/
 *.png
 *.jpg
 *.jpeg
+
+!.env.example
+!backend/.env.example
+!frontend/.env.example
