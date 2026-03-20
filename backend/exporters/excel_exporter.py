@@ -15,20 +15,20 @@ HEADER_FONT  = Font(bold=True, color="FFFFFF", size=11)
 thin   = Side(style="thin", color="E0E0E0")
 BORDER = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-COLUMNS = [
-    ("Name",         "name"),
-    ("Position",     "position"),
-    ("Phone",        "phone"),
-    ("Email",        "email"),
-    ("Address",      "address"),
-    ("Education",    "education"),
-    ("Experience",   "experience"),
-    ("Confidence",   "confidence"),
-    ("Source File",  "filename"),
-    ("Parse Method", "parse_method"),
-    ("Status",       "status"),
+ALL_COLUMNS = [
+    ("Name",         "name",         "extract_name"),
+    ("Position",     "position",     "extract_position"),
+    ("Phone",        "phone",        "extract_phone"),
+    ("Email",        "email",        "extract_email"),
+    ("Address",      "address",      "extract_address"),
+    ("Education",    "education",    "extract_education"),
+    ("Experience",   "experience",   "extract_experience"),
+    ("Confidence",   "confidence",   None),   # always show
+    ("Source File",  "filename",     None),
+    ("Parse Method", "parse_method", None),
+    ("Status",       "status",       None),
 ]
-COL_WIDTHS = [25, 28, 18, 30, 35, 35, 40, 12, 38, 14, 12]
+ALL_COL_WIDTHS = [25, 28, 18, 30, 35, 35, 40, 12, 38, 14, 12]
 
 UNSURE_DISPLAY = "?"   # what Excel shows for unsure fields
 
@@ -61,8 +61,19 @@ def build_excel(jobs: list[ParseJob], config=None) -> bytes:
     ws = wb.active
     ws.title = "Parsed Resumes"
 
+    # ── Filter columns based on config toggles ──
+    active_cols = []
+    active_widths = []
+    for (label, key, config_key), width in zip(ALL_COLUMNS, ALL_COL_WIDTHS):
+        if config_key is None:
+            active_cols.append((label, key))
+            active_widths.append(width)
+        elif config and getattr(config, config_key, True):
+            active_cols.append((label, key))
+            active_widths.append(width)
+
     # Header
-    for col_idx, (label, _) in enumerate(COLUMNS, start=1):
+    for col_idx, (label, _) in enumerate(active_cols, start=1):
         cell = ws.cell(row=1, column=col_idx, value=label)
         cell.fill   = HEADER_FILL
         cell.font   = HEADER_FONT
@@ -90,7 +101,7 @@ def build_excel(jobs: list[ParseJob], config=None) -> bytes:
             "status":       job.status.value,
         }
 
-        for col_idx, (_, key) in enumerate(COLUMNS, start=1):
+        for col_idx, (_, key) in enumerate(active_cols, start=1):
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.border    = BORDER
             cell.alignment = Alignment(vertical="center", wrap_text=False)
@@ -117,11 +128,11 @@ def build_excel(jobs: list[ParseJob], config=None) -> bytes:
 
         ws.row_dimensions[row_idx].height = 18
 
-    for col_idx, width in enumerate(COL_WIDTHS, start=1):
+    for col_idx, width in enumerate(active_widths, start=1):
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(COLUMNS))}1"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(active_cols))}1"
 
     # Summary sheet
     ws2 = wb.create_sheet(title="Summary")

@@ -28,16 +28,60 @@ body {
   font-family: 'IBM Plex Sans', 'Noto Sans Thai', system-ui, sans-serif;
   background: var(--gray-50);
   color: var(--gray-900);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;   
+  -moz-osx-font-smoothing: grayscale;  
+  font-weight: 500;
+  letter-spacing: -0.01em; 
 }
 
 /* Import Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+Thai:wght@400;500&display=swap');
-
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+Thai:wght@400;500;600&display=swap');
 .mono { font-family: 'IBM Plex Mono', monospace; }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 6px; height: 13px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--gray-200); border-radius: 99px; }
+
+/* Override Tailwind card classes → ใช้งานได้ทันทีโดยไม่ต้องแก้ component */
+.bg-white {
+  background: rgba(255, 255, 255, 0.82) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.border-gray-100,
+.border-gray-200 {
+  border-color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.rounded-xl,
+.rounded-2xl {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 16px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.rounded-xl:hover,
+.rounded-2xl:hover {
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.05),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+/* Also add .card for future use */
+.card {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 16px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s, transform 0.2s;
+}
