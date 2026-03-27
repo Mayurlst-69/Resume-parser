@@ -98,7 +98,7 @@ export default function ModelSelector() {
               )}
             </>
           ) : (
-            <span className="text-xs text-gray-500 mono truncate">{config.groq_model}</span>
+            <span className="text-xs text-gray-500 mono truncate">{config.model}</span>
           )}
         </div>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={clsx('flex-shrink-0 transition-transform', open && 'rotate-180')}>
