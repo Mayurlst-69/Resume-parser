@@ -22,6 +22,8 @@ from extractors.field_parser import parse_fields
 from exporters.excel_exporter import build_excel
 
 GROQ_SEMAPHORE = asyncio.Semaphore(2)  # max 2 concurrent Groq calls
+OCR_SEMAPHORE = asyncio.Semaphore(1)
+
 app = FastAPI(title="Resume Parser API", version="1.0.0")
 
 app.add_middleware(
@@ -168,7 +170,8 @@ async def run_single_job(
         )
     finally:
         try:
-            os.unlink(tmp_path)
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)                                                                    │                os.unlink(tmp_path) 
         except Exception:
             pass
 
@@ -183,16 +186,18 @@ async def extract_text(
     Returns (text, method_label, ocr_confidence)
     """
     if suffix == PDF_EXT:
-        text, is_text = extract_text_from_pdf(path)
+        text, is_text = await asyncio.to_thread(extract_text_from_pdf,path) 
         if is_text:
             return text, "pdf-text", 0.0
         else:
             # Scanned PDF — run OCR
-            text, conf = ocr_scanned_pdf(path, languages)
+            async with OCR_SEMAPHORE:
+                text, conf = await asyncio.to_thread(ocr_scanned_pdf, path, languages)
             return text, "pdf-ocr", conf
 
     elif suffix in IMAGE_EXTS:
-        text, conf = ocr_image_file(path, languages)
+        async with OCR_SEMAPHORE:
+            text, conf = await asyncio.to_thread(ocr_image_file, path, languages)
         return text, "image-ocr", conf
 
     return "", "unknown", 0.0

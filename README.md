@@ -251,10 +251,5 @@ llama-3.1-8b  : 500,000 TPD · 30,000 TPM  ← สำรองสำหรับ
 ---
 
 <div align="center">
-<<<<<<< HEAD
 Built by Mayurlst for Thai HR teams 
 </div>
-=======
-Built by Mayurlst for Thai HR teams
-</div>
->>>>>>> 610e1ab (LLMs connection)
