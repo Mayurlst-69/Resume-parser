@@ -129,7 +129,7 @@ Stage 7 — Merge + Confidence Score
 ### 1. Clone
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/resume-parser.git
+git clone https://github.com/Mayurlst-69/resume-parser.git
 cd resume-parser
 ```
 
