@@ -25,13 +25,13 @@ const LANGS = [
 const EXTRACT_MODES = [
   {
     value: 'concise',
-    label: 'Concise extract',
-    desc: 'Smart section detect — Send to AI only contact section / less token more concise for standard resume', 
+    label: 'Concise',
+    desc: 'Contact section only — fewer tokens, lower cost, best for standard resumes', 
   },
   {
     value: 'general',
-    label: 'General extract',
-    desc: 'Send Full text 4000 chars — safe for resume weird format or the name not on standard position',
+    label: 'General',
+    desc: 'Full text (4000 chars) — higher token cost, best for non-standard formats',
   },
 ] as const
 

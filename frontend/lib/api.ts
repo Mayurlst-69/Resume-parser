@@ -19,7 +19,7 @@ export async function uploadBatch(
   form.append('languages',          config.languages.join(','))
   form.append('empty_value',        config.empty_value === 'null' ? 'null' : '')
   form.append('extract_mode',       config.extract_mode)
-  form.append('groq_model',         config.groq_model)
+  form.append('model',         config.model)
   // Send api_keys as JSON — backend parses and uses per-provider
   form.append('api_keys', JSON.stringify(apiKeys))
 
@@ -57,7 +57,7 @@ export async function validateApiKey(provider: string, key: string): Promise<boo
     const testModels: Record<string, string> = {
       groq:      'llama-3.1-8b-instant',
       openai:    'gpt-4o-mini',
-      anthropic: 'claude-haiku-4-5-20251001',
+      anthropic: 'claude-haiku-4-5',
       google:    'gemini-1.5-flash',
     } 
     const urls: Record<string, string> = {

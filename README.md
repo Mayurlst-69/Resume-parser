@@ -9,9 +9,11 @@ Thai & English · Drag & Drop · Real-time · Multi-provider LLM
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=flat&logo=next.js&logoColor=white)](https://nextjs.org)
+[![LiteLLM](https://img.shields.io/badge/LiteLLM-1.82-7C3AED?style=flat)](https://litellm.ai)
 [![Groq](https://img.shields.io/badge/Groq-Free-F55036?style=flat)](https://groq.com)
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT4o-412991?style=flat)](https://openai.com)
 [![Anthropic](https://img.shields.io/badge/Anthropic-Claude-CC785C?style=flat)](https://anthropic.com)
+[![Google](https://img.shields.io/badge/Google-Gemini-4285F4?style=flat)](https://ai.google.dev)
 
 </div>
 
@@ -25,9 +27,9 @@ Thai & English · Drag & Drop · Real-time · Multi-provider LLM
 | 🔍 **7 extract fields** | ชื่อ · ตำแหน่ง · เบอร์ · อีเมล · ที่อยู่ · การศึกษา · ประสบการณ์ |
 | 🇹🇭 **Thai + English** | รองรับ resume ไทย อังกฤษ และแบบผสม |
 | 📸 **OCR support** | PDF scan / JPG / PNG → EasyOCR + Tesseract fallback |
-| 🤖 **Multi-provider AI** | Groq · OpenAI · Anthropic · Google — เลือกได้จาก UI |
+| 🤖 **Multi-provider AI** | Groq · OpenAI · Anthropic · Google — เลือกได้จาก UI ผ่าน LiteLLM |
 | 🔑 **API key manager** | ใส่ key ได้ผ่าน UI หรือ `.env` — UI key ชนะเสมอ |
-| ⚡ **Concise / General mode** | Smart section detect หรือ full text safe mode |
+| ⚡ **Concise / General mode** | Smart section detect ประหยัด token หรือ full text safe mode |
 | 🟡 **Confidence tiers** | `confident` / `unsure` (?) / `absent` — รู้ทันทีว่าต้องตรวจ |
 | 📊 **Dynamic Excel export** | Column ใน Excel ตาม field ที่ toggle — ไม่แสดง field ที่ไม่ได้เลือก |
 | 🕒 **Batch history** | SQLite เก็บประวัติ re-download Excel ย้อนหลัง |
@@ -46,7 +48,7 @@ resume-parser/
 │   ├── extractors/
 │   │   ├── pdf_extractor.py        # pdfplumber — text-based PDF
 │   │   ├── ocr_extractor.py        # EasyOCR (per-lang cache) → Tesseract fallback
-│   │   ├── field_parser.py         # 3-layer pipeline + multi-provider routing
+│   │   ├── field_parser.py         # 3-layer pipeline + LiteLLM multi-provider routing
 │   │   └── heuristic_extractor.py  # Rule-based fallback (Thai prefix scan)
 │   ├── exporters/
 │   │   └── excel_exporter.py       # openpyxl — dynamic columns per config
@@ -92,10 +94,11 @@ Stage 3 — Regex  [Deterministic]
   email 97% · phone 93% · Thai address pattern
         │
         ▼
-Stage 4 — LLM  [AI Brain]
-  Mode: Concise → contact section only (saves ~70% tokens)
+Stage 4 — LLM via LiteLLM  [AI Brain]
+  Mode: Concise → contact section only (ประหยัด ~70% tokens / cost)
         General → full text 4000 chars
-  Education/Experience ON → auto full text
+  Education/Experience ON → auto full text ไม่ขึ้นกับ mode
+  Provider routing: groq/ · (openai) · anthropic/ · gemini/
   Returns: value | "none" (unsure) | null (absent)
         │
         ▼
@@ -207,17 +210,21 @@ npm run dev
 | **OpenAI** | `gpt-4o` | ⚡⚡ | ⭐⭐⭐⭐⭐ | ❌ |
 | **OpenAI** | `gpt-4o-mini` | ⚡⚡⚡ | ⭐⭐⭐⭐ | ❌ |
 | **Anthropic** | `claude-sonnet-4-6` | ⚡⚡ | ⭐⭐⭐⭐⭐ | ❌ |
-| **Google** | `gemini-1.5-pro` | ⚡⚡ | ⭐⭐⭐⭐ | ❌ |
+| **Anthropic** | `claude-opus-4-6` | ⚡ | ⭐⭐⭐⭐⭐ | ❌ |
+| **Google** | `gemini-1.5-pro` | ⚡⚡ | ⭐⭐⭐⭐ | ❌ context 1M |
+| **Google** | `gemini-1.5-flash` | ⚡⚡⚡ | ⭐⭐⭐ | ❌ |
 | **Custom** | พิมพ์ model id เอง | — | — | — |
+
+> LiteLLM จัดการ provider routing อัตโนมัติ — ไม่ต้องเขียน SDK แยกต่อ provider
 
 ### Extract Mode
 
-| Mode | วิธีทำงาน | เหมาะกับ |
-|---|---|---|
-| **Concise** | ส่ง contact section เท่านั้น (~200 tokens) | Resume format มาตรฐาน ✅ |
-| **General** | ส่ง full text 4000 chars (~1000 tokens) | Resume format แปลก |
+| Mode | วิธีทำงาน | Token cost | เหมาะกับ |
+|---|---|---|---|
+| **Concise** | ส่ง contact section เท่านั้น | ~200 tokens | Resume format มาตรฐาน ✅ |
+| **General** | ส่ง full text 4000 chars | ~1000 tokens | Resume format แปลก |
 
-> ⚠️ Toggle Education / Experience ON → ใช้ full text อัตโนมัติ ไม่ขึ้นกับ mode
+> ⚠️ Toggle Education / Experience ON → ใช้ full text อัตโนมัติ ไม่ขึ้นกับ mode ที่เลือก
 
 ### Groq Free Tier Rate Limits
 
@@ -236,7 +243,7 @@ llama-3.1-8b  : 500,000 TPD · 30,000 TPM  ← สำรองสำหรับ
 | **Backend** | FastAPI, Python 3.10+, asyncio |
 | **PDF** | pdfplumber |
 | **OCR** | EasyOCR (Thai+English, per-lang cache) → Tesseract |
-| **AI** | Groq · OpenAI · Anthropic · Google (configurable) |
+| **AI** | LiteLLM — unified interface for Groq · OpenAI · Anthropic · Google |
 | **DB** | SQLite (batch history) |
 | **Export** | openpyxl (dynamic columns) |
 | **Realtime** | Server-Sent Events (SSE) |
@@ -244,5 +251,10 @@ llama-3.1-8b  : 500,000 TPD · 30,000 TPM  ← สำรองสำหรับ
 ---
 
 <div align="center">
+<<<<<<< HEAD
 Built by Mayurlst for Thai HR teams 
 </div>
+=======
+Built by Mayurlst for Thai HR teams
+</div>
+>>>>>>> 610e1ab (LLMs connection)

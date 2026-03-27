@@ -1,18 +1,26 @@
 import re
 import os
 import json
-import httpx
 import asyncio
 from api.models import ExtractedFields, ParseConfig
 from extractors.heuristic_extractor import extract_name_heuristic, extract_position_heuristic
 
-GROQ_API_URL    = "https://api.groq.com/openai/v1/chat/completions"
-OPENAI_API_URL  = "https://api.openai.com/v1/chat/completions"
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-GOOGLE_API_URL  = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+# ── LiteLLM — unified multi-provider interface ────────────────────────────────
+import litellm
+litellm.suppress_debug_info = True
+litellm.set_verbose = False
 
-# Default model — overridable from UI via ParseConfig.groq_model
-GROQ_MODEL_DEFAULT = "llama-3.3-70b-versatile"
+# Default model
+DEFAULT_MODEL = "groq/llama-3.3-70b-versatile"
+
+# ── Model prefix map — LiteLLM uses "provider/model_id" format ───────────────
+# Docs: https://docs.litellm.ai/docs/providers
+MODEL_PREFIX_MAP = {
+    "groq":      "groq/",
+    "openai":    "",           # openai models use no prefix
+    "anthropic": "anthropic/",
+    "google":    "gemini/",
+}
 
 # ── All available models by provider ─────────────────────────────────────────
 ALL_MODELS = [
@@ -20,6 +28,7 @@ ALL_MODELS = [
     {
         "provider": "groq", "provider_label": "Groq (Free)",
         "id": "llama-3.3-70b-versatile",
+        "litellm_id": "groq/llama-3.3-70b-versatile",
         "label": "Llama 3.3 70B",
         "context": "128k", "speed": "fast",
         "desc": "Meta's best open model. Recommended for Thai resume parsing.",
@@ -28,6 +37,7 @@ ALL_MODELS = [
     {
         "provider": "groq", "provider_label": "Groq (Free)",
         "id": "llama-3.1-8b-instant",
+        "litellm_id": "groq/llama-3.1-8b-instant",
         "label": "Llama 3.1 8B",
         "context": "128k", "speed": "fastest",
         "desc": "Lightweight and fast. Separate quota from 70B.",
@@ -36,6 +46,7 @@ ALL_MODELS = [
     {
         "provider": "groq", "provider_label": "Groq (Free)",
         "id": "gemma2-9b-it",
+        "litellm_id": "groq/gemma2-9b-it",
         "label": "Gemma 2 9B",
         "context": "8k", "speed": "fast",
         "desc": "Google's open model hosted on Groq.",
@@ -44,6 +55,7 @@ ALL_MODELS = [
     {
         "provider": "groq", "provider_label": "Groq (Free)",
         "id": "mixtral-8x7b-32768",
+        "litellm_id": "groq/mixtral-8x7b-32768",
         "label": "Mixtral 8x7B",
         "context": "32k", "speed": "fast",
         "desc": "Mistral's MoE model. Great for long resumes.",
@@ -53,31 +65,26 @@ ALL_MODELS = [
     {
         "provider": "openai", "provider_label": "OpenAI",
         "id": "gpt-4o",
+        "litellm_id": "gpt-4o",
         "label": "GPT-4o",
         "context": "128k", "speed": "fast",
-        "desc": "OpenAI's flagship multimodal model. Excellent accuracy.",
+        "desc": "OpenAI's flagship model. Excellent accuracy.",
         "free": False,
     },
     {
         "provider": "openai", "provider_label": "OpenAI",
         "id": "gpt-4o-mini",
+        "litellm_id": "gpt-4o-mini",
         "label": "GPT-4o Mini",
         "context": "128k", "speed": "fastest",
         "desc": "Fast and affordable. Great balance of speed and accuracy.",
-        "free": False,
-    },
-    {
-        "provider": "openai", "provider_label": "OpenAI",
-        "id": "gpt-4-turbo",
-        "label": "GPT-4 Turbo",
-        "context": "128k", "speed": "medium",
-        "desc": "High accuracy. Best for complex Thai-English mixed resumes.",
         "free": False,
     },
     # Anthropic
     {
         "provider": "anthropic", "provider_label": "Anthropic",
         "id": "claude-sonnet-4-6",
+        "litellm_id": "anthropic/claude-sonnet-4-6",
         "label": "Claude Sonnet 4.6",
         "context": "200k", "speed": "fast",
         "desc": "Anthropic's balanced model. Strong multilingual understanding.",
@@ -86,6 +93,7 @@ ALL_MODELS = [
     {
         "provider": "anthropic", "provider_label": "Anthropic",
         "id": "claude-opus-4-6",
+        "litellm_id": "anthropic/claude-opus-4-6",
         "label": "Claude Opus 4.6",
         "context": "200k", "speed": "medium",
         "desc": "Anthropic's most powerful model. Best for complex documents.",
@@ -95,6 +103,7 @@ ALL_MODELS = [
     {
         "provider": "google", "provider_label": "Google",
         "id": "gemini-1.5-pro",
+        "litellm_id": "gemini/gemini-1.5-pro",
         "label": "Gemini 1.5 Pro",
         "context": "1M", "speed": "fast",
         "desc": "Google's best model. Massive context window.",
@@ -103,6 +112,7 @@ ALL_MODELS = [
     {
         "provider": "google", "provider_label": "Google",
         "id": "gemini-1.5-flash",
+        "litellm_id": "gemini/gemini-1.5-flash",
         "label": "Gemini 1.5 Flash",
         "context": "1M", "speed": "fastest",
         "desc": "Fast and affordable. Good Thai language support.",
@@ -110,81 +120,83 @@ ALL_MODELS = [
     },
 ]
 
-PROVIDER_API_URLS = {
-    "groq":      GROQ_API_URL,
-    "openai":    OPENAI_API_URL,
-    "anthropic": ANTHROPIC_API_URL,
-    "google":    GOOGLE_API_URL,
-}
+# ── Helper: resolve litellm model id + api key ────────────────────────────────
+
+def _resolve_model(config: ParseConfig) -> tuple[str, str]:
+    """
+    Returns (litellm_model_id, api_key)
+    Looks up the litellm_id from ALL_MODELS, falls back to prefixing.
+    API key: UI config → env fallback
+    """
+    model_id = config.model or DEFAULT_MODEL
+    ui_keys  = config.api_keys or {}
+
+    # Find in ALL_MODELS to get litellm_id + provider
+    model_info = next((m for m in ALL_MODELS if m["id"] == model_id), None)
+
+    if model_info:
+        litellm_id = model_info["litellm_id"]
+        provider   = model_info["provider"]
+    else:
+        # Custom model — user typed their own id
+        # Try to detect provider from prefix (e.g. "groq/...", "anthropic/...")
+        if "/" in model_id:
+            provider   = model_id.split("/")[0]
+            litellm_id = model_id
+        else:
+            # Default to groq if no prefix
+            provider   = "groq"
+            litellm_id = f"groq/{model_id}"
+
+    # Resolve API key: UI → env
+    env_map = {
+        "groq":      "GROQ_API_KEY",
+        "openai":    "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "google":    "GOOGLE_API_KEY",
+    }
+    api_key = ui_keys.get(provider) or os.getenv(env_map.get(provider, ""), "")
+
+    return litellm_id, api_key
+
 
 # ── Clean TEXT ────────────────────────────────────────────────────────────────
 
 def clean_text(text: str) -> str:
-    """Remove null bytes, fix broken spacing from bad PDF font encoding."""
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
     text = re.sub(r' {2,}', ' ', text)
     text = re.sub(r'\b([A-Z])(?: ([A-Z]))+\b', lambda m: m.group(0).replace(' ', ''), text)
     return text.strip()
 
-# ── Header section extractor ─────────────────────────────────────────────────
 
 def extract_contact_section(text: str) -> str:
-    """
-    Smart section extractor 
-
-    Vision: Token optimization must NOT affect accuracy.
-    - Send only AI contact section that is relevant (name/position/email/phone)
-    - Stop when section break such as EXPERIENCE, EDUCATION
-    - If not found section break → Use 40 lines (added more 25 for accuracy)
-    """
     lines = [l.strip() for l in text.split('\n') if l.strip()]
-
-    # Section breaks — When found these text, Assume that contact section have done
     SECTION_BREAKS = re.compile(
         r'^(ประสบการณ์|ประสบการณ์การทำงาน|การศึกษา|ประวัติการศึกษา|'
         r'experience|work experience|work history|education|'
-        r'academic|qualification|'
-        r'ทักษะ|ความสามารถ|skills|abilities|'
-        r'references|เอกสารอ้างอิง|'
-        r'โครงการ|project|portfolio|'
-        r'รางวัล|award|achievement|'
-        r'กิจกรรม|activity|activities)'
+        r'academic|qualification|ทักษะ|ความสามารถ|skills|abilities|'
+        r'references|เอกสารอ้างอิง|โครงการ|project|portfolio|'
+        r'รางวัล|award|achievement|กิจกรรม|activity|activities)'
         r'\s*[:\-]?\s*$',
         re.IGNORECASE
     )
-
     contact_lines = []
     for line in lines:
-        # Stop when section break (have atleast 5 paragraph)
         if SECTION_BREAKS.match(line) and len(contact_lines) >= 5:
             break
         contact_lines.append(line)
-
-    # If not found any section break  → Use 40 lines
-    # 40 > 25 for accuracy, Not token saving
     if len(contact_lines) == len(lines):
         contact_lines = lines[:40]
-
     return '\n'.join(contact_lines)
 
-# ── General extract section ───────────────────────────────────────────────────
 
-def extract_general_section(text: str) -> str:  
-    """
-    General Extract mode — Send Full text (safe, no data loss)
-    Use when resume has weird format or name not in normally position by default
-    """
+def extract_general_section(text: str) -> str:
     return clean_text(text)[:4000]
+
 
 # ── Certainty parser ──────────────────────────────────────────────────────────
 
-def parse_llm_value(raw: str | None) -> tuple[str | None, str]:
-    """
-    Parse LLM field value into (value, certainty).
-        (value, "confident") — found and sure
-        (None,  "unsure")    — found but not sure → "none" from LLM
-        (None,  "absent")    — not in resume at all → null from LLM
-    """
+def parse_llm_value(raw) -> tuple[str | None, str]:
     if raw is None:
         return None, "absent"
     if str(raw).strip().lower() in ("none", "null", ""):
@@ -194,73 +206,50 @@ def parse_llm_value(raw: str | None) -> tuple[str | None, str]:
 
 # ── Regex patterns ────────────────────────────────────────────────────────────
 
-EMAIL_RE = re.compile(
-    r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"
-)
-
+EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 PHONE_RE = re.compile(
     r'(?<!\d)(?:\+66[\s\-.]?[6-9]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4}|0[689]\d[\s\-.]?\d{3,4}[\s\-.]?\d{4}|02[\s\-.]?\d{3,4}[\s\-.]?\d{4}|0[3-7]\d[\s\-.]?\d{3}[\s\-.]?\d{4})(?!\d)'
+)
+THAI_ADDRESS_RE = re.compile(
+    r'(?:ที่อยู่|address|บ้านเลขที่|เลขที่|อาคาร)\s*[:\-]?\s*(.{10,120})'
+    r'|(\d+[/\d]*\s+.{5,80}(?:จังหวัด|จ\.|กรุงเทพ|กทม\.|อำเภอ|อ\.|เขต|ตำบล|ต\.|แขวง|ถนน|ถ\.|หมู่|ม\.|ซอย|ซ\.)[^\n]{0,50}(?:\d{5})?)',
+    re.IGNORECASE
 )
 
 
 def extract_email(text: str) -> tuple[str | None, float]:
     match = EMAIL_RE.search(text)
-    if match:
-        return match.group(0).strip(), 0.97
-    return None, 0.0
+    return (match.group(0).strip(), 0.97) if match else (None, 0.0)
+
 
 def clean_email(email: str) -> str | None:
     if not email:
         return None
     cleaned = re.sub(r'\s+', '', email)
-    if EMAIL_RE.fullmatch(cleaned):
-        return cleaned
-    return None
+    return cleaned if EMAIL_RE.fullmatch(cleaned) else None
+
 
 def extract_phone(text: str) -> tuple[str | None, float]:
     match = PHONE_RE.search(text)
     if match:
-        raw = match.group(0).strip()
-        phone = re.sub(r"[\s]", " ", raw).strip()
-        return phone, 0.93
+        return re.sub(r"[\s]", " ", match.group(0).strip()), 0.93
     return None, 0.0
 
+
 def format_phone(phone: str | None) -> str | None:
-    """
-    Normalize Thai phone to xxx-xxx-xxxx format.
-    Works with: 0812345678, 081 234 5678, 081-234-5678, +66812345678
-    """
     if not phone:
         return phone
-
-    # Strip everything except digits
     digits = re.sub(r'\D', '', phone)
-
-    # +66xxxxxxxxx → 0xxxxxxxxx
     if digits.startswith('66') and len(digits) == 11:
         digits = '0' + digits[2:]
-
-    # Format 10-digit Thai mobile: 081-234-5678
     if len(digits) == 10:
         return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
-
-    # Format 9-digit landline: 02-123-4567
     if len(digits) == 9:
         return f"{digits[:2]}-{digits[2:5]}-{digits[5:]}"
-
-    # Unknown format — return cleaned digits
     return digits
 
-# ── Address regex ─────────────────────────────────────────────────────────────
-
-THAI_ADDRESS_RE = re.compile(
-    r'(?:ที่อยู่|address|บ้านเลขที่|เลขที่|อาคาร)\s*[:\-]?\s*(.{10,120})'
-    r'|(\d+[/\d]*\s+.{5,80}(?:จังหวัด|จ\.|กรุงเทพ|กทม\.|อำเภอ|อ\.|เขต|ตำบล|ต\.|แขวง|ถนน|ถ\.|หมู่|ม\.|ซอย|ซ\.)[^\n]{0,50}(?:\d{5})?)', # Thai address patterns — จังหวัด/ถนน/ตำบล/อำเภอ
-    re.IGNORECASE
-)
 
 def extract_address(text: str) -> tuple[str | None, float]:
-    """Extract address from text using regex."""
     match = THAI_ADDRESS_RE.search(text)
     if match:
         addr = (match.group(1) or match.group(2) or "").strip()
@@ -269,7 +258,7 @@ def extract_address(text: str) -> tuple[str | None, float]:
     return None, 0.0
 
 
-# ── Groq LLM extraction ───────────────────────────────────────────────────────
+# ── System prompt ─────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a resume parser. Extract fields from resume text and return JSON only.
 
@@ -286,42 +275,42 @@ Rules:
 
 For each field use exactly one of these values:
 1. The actual value — if you found it and are confident
-2. "none" — if you see something that might be the field but are not sure
-3. JSON null — if the field is clearly not present in the resume at all
+2. "none" — if you see something but are not sure
+3. JSON null — if the field is clearly not present
 
 - Use JSON null not string "null"
-- NO explanations, NO examples, NO other text — JSON only."""
+- NO explanations, NO other text, NO examples — JSON only."""
 
 
-async def extract_fields_groq(
+# ── LLM extraction via LiteLLM ────────────────────────────────────────────────
+
+async def extract_fields_llm(
     text: str,
     config: ParseConfig,
 ) -> tuple[str | None, str, str | None, str, float, str | None, str | None, str | None, str | None]:
     """
-    Returns (name, name_cert, position, position_cert, conf, email_llm, phone_llm, education_llm, experience_llm)
+    Multi-provider LLM extraction using LiteLLM.
+    Returns (name, name_cert, position, position_cert, conf,
+             email_llm, phone_llm, education_llm, experience_llm)
     """
-    api_key = (config.api_keys or {}).get("groq") or os.getenv("GROQ_API_KEY", "")
+    litellm_id, api_key = _resolve_model(config)
+
     if not api_key:
+        print(f"[LLM] No API key for model: {litellm_id}")
         return None, "absent", None, "absent", 0.0, None, None, None, None
 
-    # ── Mode switch ──
-    # education/experience live in body section → always need full text
-    # concise: contact section only (name/position/email/phone)
-    # general: full text for all fields — safe fallback for unusual resume formats
+    # ── Context selection ──
     need_full_text = config.extract_education or config.extract_experience
     if need_full_text or config.extract_mode == "general":
-        context = extract_general_section(text)
+        context   = extract_general_section(text)
         mode_hint = "The text below is the full resume content."
     else:
-        context = extract_contact_section(clean_text(text))
+        context   = extract_contact_section(clean_text(text))
         mode_hint = "The text below is the contact/header section of the resume."
 
-    # Build requested fields list for user message
     requested = ["name", "position", "email", "phone"]
-    if config.extract_education:
-        requested.append("education")
-    if config.extract_experience:
-        requested.append("experience")
+    if config.extract_education:  requested.append("education")
+    if config.extract_experience: requested.append("experience")
 
     user_msg = (
         f"Extract these fields: {', '.join(requested)}.\n"
@@ -333,58 +322,53 @@ async def extract_fields_groq(
     for attempt in range(max_retries):
         await asyncio.sleep(1.5)
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    GROQ_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": config.groq_model or GROQ_MODEL_DEFAULT,
-                        "messages": [
-                            {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": user_msg},
-                        ],
-                        "temperature": 0.0,
-                        "max_tokens": 400,
-                    },
-                )
+            # ── LiteLLM call — one line handles all providers ──
+            response = await litellm.acompletion(
+                model=litellm_id,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_msg},
+                ],
+                api_key=api_key,
+                temperature=0.0,
+                max_tokens=400,
+                timeout=30,
+            )
 
-                if resp.status_code == 429:
-                    wait = 3 * (attempt + 1)
-                    await asyncio.sleep(wait)
-                    continue
+            content = response.choices[0].message.content.strip()
+            content = re.sub(r"```json|```", "", content).strip()
+            print(f"[LLM RAW] {litellm_id}: {content}")
+            parsed = json.loads(content)
 
-                resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"].strip()
-                content = re.sub(r"```json|```", "", content).strip()
-                print(f"[GROQ RAW] {content}") # --> for debugging
-                parsed = json.loads(content)
+            name,     name_cert     = parse_llm_value(parsed.get("name"))
+            position, position_cert = parse_llm_value(parsed.get("position"))
+            email_llm, _ = parse_llm_value(
+                parsed.get("email") or
+                next((v for k, v in parsed.items() if "mail" in k.lower()), None)
+            )
+            phone_llm, _     = parse_llm_value(parsed.get("phone"))
+            education_llm, _ = parse_llm_value(parsed.get("education"))
+            experience_llm, _= parse_llm_value(parsed.get("experience"))
 
-                name,     name_cert     = parse_llm_value(parsed.get("name"))
-                position, position_cert = parse_llm_value(parsed.get("position"))
-                email_llm, _            = parse_llm_value(
-                    parsed.get("email") or
-                    next((v for k, v in parsed.items() if "mail" in k.lower()), None)
-                )
-                phone_llm, _ = parse_llm_value(parsed.get("phone"))
-                education_llm, _ = parse_llm_value(parsed.get("education"))
-                experience_llm, _ = parse_llm_value(parsed.get("experience"))
+            if email_llm:
+                email_llm = clean_email(email_llm)
 
-                # Clean email spaces
-                if email_llm:
-                    email_llm = clean_email(email_llm)
+            found_conf = sum(1 for c in [name_cert, position_cert] if c == "confident")
+            found_any  = sum(1 for c in [name_cert, position_cert] if c != "absent")
+            conf = 0.90 if found_conf == 2 else (0.75 if found_conf == 1 else (0.40 if found_any > 0 else 0.0))
 
-                found_conf = sum(1 for c in [name_cert, position_cert] if c == "confident")
-                found_any  = sum(1 for c in [name_cert, position_cert] if c != "absent")
-                conf = 0.90 if found_conf == 2 else (0.75 if found_conf == 1 else (0.40 if found_any > 0 else 0.0))
+            return name, name_cert, position, position_cert, conf, email_llm, phone_llm, education_llm, experience_llm
 
-                return name, name_cert, position, position_cert, conf, email_llm, phone_llm, education_llm, experience_llm
-
+        except litellm.RateLimitError:
+            wait = 3 * (attempt + 1)
+            print(f"[LLM] Rate limit hit, waiting {wait}s...")
+            await asyncio.sleep(wait)
+            continue
+        except litellm.AuthenticationError:
+            print(f"[LLM] Invalid API key for {litellm_id}")
+            break
         except Exception as e:
-            print(f"[GROQ ERROR] attempt={attempt} error={e}") # --> for debugging
+            print(f"[LLM ERROR] attempt={attempt} model={litellm_id} error={e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(2)
             continue
@@ -392,76 +376,59 @@ async def extract_fields_groq(
     return None, "absent", None, "absent", 0.0, None, None, None, None
 
 
-# ── Heuristic validation: sanity-check AI output ─────────────────────────────
+# ── Sanity checks ─────────────────────────────────────────────────────────────
 
 def sanity_check_name(name: str | None, text: str) -> tuple[str | None, str]:
-    """
-    Cross-check AI name result against heuristic.
-    If AI confident but heuristic disagrees strongly → downgrade to unsure.
-    """
     if name is None:
         return name, "absent"
-
-    # Hallucination signals
-    hallucination_patterns = [
-        r'^\d+$',                          # pure numbers
-        r'(company|บริษัท|ltd|co\.,)',      # company name
-        r'(university|มหาวิทยาลัย|วิทยาลัย|การศึกษา|College|University)',        # university
-        r'.{81,}',                          # too long (>80 chars)
-        r'^(resume|cv|curriculum vitae)',   # document title
+    patterns = [
+        r'^\d+$',
+        r'(company|บริษัท|ltd|co\.,)',
+        r'(university|มหาวิทยาลัย|วิทยาลัย|การศึกษา|College|University)',
+        r'.{81,}',
+        r'^(resume|cv|curriculum vitae)',
     ]
-    for pat in hallucination_patterns:
+    for pat in patterns:
         if re.search(pat, name, re.IGNORECASE):
-            print(f"[HEURISTIC] name hallucination detected: {name!r}")
+            print(f"[HEURISTIC] name hallucination: {name!r}")
             return None, "unsure"
-
     return name, "confident"
 
 
 def sanity_check_position(position: str | None) -> tuple[str | None, str]:
-    """Basic sanity check for position field."""
     if position is None:
         return None, "absent"
     if len(position) > 100 or re.match(r'^\d+$', position):
-        print(f"[HEURISTIC] position suspicious: {position!r}")
         return None, "unsure"
     return position, "confident"
+
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 async def parse_fields(text: str, config: ParseConfig) -> ExtractedFields:
-    """
-    3-layer extraction:
-        Layer 1: Regex (email, phone) — deterministic
-        Layer 2: LLM (name, position, fallback email/phone)
-        Layer 3: Heuristic fallback when AI fails or is unsure
-    """
-    text = clean_text(text)
+    text  = clean_text(text)
     empty = None if config.empty_value == "null" else ""
 
+    # Layer 1: Regex
+    email_regex,   email_conf = extract_email(text)   if config.extract_email   else (empty, 0)
+    phone_regex,   phone_conf = extract_phone(text)   if config.extract_phone   else (empty, 0)
+    address_regex, _          = extract_address(text) if config.extract_address else (empty, 0)
 
-    # ── Layer 1:Regex ──
-    email_regex, email_conf = extract_email(text) if config.extract_email else (empty, 0)
-    phone_regex, phone_conf = extract_phone(text) if config.extract_phone else (empty, 0)
-    address_regex, addr_conf = extract_address(text) if config.extract_address else (empty, 0)
-
-    # ── Layer 2:LLM ──
+    # Layer 2: LLM (via LiteLLM)
     name, name_cert, position, position_cert, llm_conf, email_llm, phone_llm, education_llm, experience_llm = \
-        await extract_fields_groq(text, config)
-    
-    # ── Sanity check AI output (catch hallucinations) ──
+        await extract_fields_llm(text, config)
+
+    # Layer 3: Sanity check
     name,     name_cert     = sanity_check_name(name, text)
     position, position_cert = sanity_check_position(position)
 
-    # ── Layer 3: Heuristic fallback ──
-    # Only kick in when AI failed (absent) or unsure
+    # Layer 4: Heuristic fallback
     if config.extract_name and name_cert in ("absent", "unsure"):
         h_name, h_conf = extract_name_heuristic(text)
         if h_name:
             print(f"[HEURISTIC] name fallback: {h_name!r} conf={h_conf}")
             name      = h_name
             name_cert = "confident" if h_conf >= 0.75 else "unsure"
-            # Blend confidence — heuristic is less reliable than Groq
             llm_conf  = max(llm_conf, h_conf * 0.85)
 
     if config.extract_position and position_cert in ("absent", "unsure"):
@@ -472,18 +439,14 @@ async def parse_fields(text: str, config: ParseConfig) -> ExtractedFields:
             position_cert = "confident" if h_conf >= 0.75 else "unsure"
             llm_conf      = max(llm_conf, h_conf * 0.85)
 
-    # ── Resolve final values ──
+    # Merge
     def resolve(value, cert):
-        """absent → empty (follow toggle), unsure → None (UI shows ?), confident → value"""
-        if value is not None:
-            return value
-        if cert == "unsure":
-            return None   # UI bypasses toggle, shows "?"
-        return empty      # absent → follow toggle
+        if value is not None: return value
+        if cert == "unsure":  return None
+        return empty
 
-    # Regex wins if found, Groq fills in as fallback
-    final_email = email_regex or email_llm or empty
-    final_phone = format_phone(phone_regex or phone_llm) or empty
+    final_email   = email_regex or email_llm or empty
+    final_phone   = format_phone(phone_regex or phone_llm) or empty
     final_address = address_regex or empty
     final_edu     = education_llm or empty if config.extract_education else empty
     final_exp     = experience_llm or empty if config.extract_experience else empty
@@ -492,12 +455,9 @@ async def parse_fields(text: str, config: ParseConfig) -> ExtractedFields:
     phone_final_conf = phone_conf if phone_regex else (0.75 if phone_llm else 0.0)
 
     scores = []
-    if config.extract_email:
-        scores.append(email_final_conf if final_email else 0.0)
-    if config.extract_phone:
-        scores.append(phone_final_conf if final_phone else 0.0)
-    if config.extract_name or config.extract_position:
-        scores.append(llm_conf)
+    if config.extract_email:   scores.append(email_final_conf if final_email else 0.0)
+    if config.extract_phone:   scores.append(phone_final_conf if final_phone else 0.0)
+    if config.extract_name or config.extract_position: scores.append(llm_conf)
 
     confidence = round(sum(scores) / len(scores), 2) if scores else 0.0
 

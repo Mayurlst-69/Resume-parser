@@ -38,7 +38,7 @@ export interface ParseConfig {
   languages: string[]
   empty_value: 'null' | ''
   extract_mode: 'concise' | 'general'
-  groq_model: string
+  model: string
 }
 
 export interface ApiKeys {
@@ -74,7 +74,7 @@ const defaultConfig: ParseConfig = {
   languages: ['eng', 'tha'],
   empty_value: 'null',
   extract_mode: 'concise',
-  groq_model: 'llama-3.3-70b-versatile',
+  model: 'llama-3.3-70b-versatile',
 }
 
 const defaultApiKeys: ApiKeys = {

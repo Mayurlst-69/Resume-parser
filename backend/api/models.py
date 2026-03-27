@@ -45,7 +45,7 @@ class ParseConfig(BaseModel):
     languages: List[str] = ["eng", "tha"]
     empty_value: str = "null"  # "null" or ""
     extract_mode: str = "concise"  # "concise" | "general"
-    groq_model: str = "llama-3.3-70b-versatile"
+    model: str = "llama-3.3-70b-versatile"
     api_keys: dict = {}
 
 

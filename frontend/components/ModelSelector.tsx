@@ -52,7 +52,7 @@ export default function ModelSelector() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const currentModel = models.find(m => m.id === config.groq_model)
+  const currentModel = models.find(m => m.id === config.model)
 
   // Group by provider
   const grouped = models.reduce((acc, m) => {
@@ -67,7 +67,7 @@ export default function ModelSelector() {
   }
 
   const selectModel = (m: Model) => {
-    setConfig({ groq_model: m.id })
+    setConfig({ model: m.id })
     setCustomMode(false)
     setOpen(false)
   }
@@ -133,7 +133,7 @@ export default function ModelSelector() {
 
                 {/* Models */}
                 {group.models.map(m => {
-                  const selected = config.groq_model === m.id
+                  const selected = config.model === m.id
                   const locked = !m.free && !hasKey(m.provider)
                   return (
                     <div
@@ -194,7 +194,7 @@ export default function ModelSelector() {
                     onChange={e => setCustomVal(e.target.value)}
                     onKeyDown={e => {
                       if (e.key === 'Enter' && customVal.trim()) {
-                        setConfig({ groq_model: customVal.trim() })
+                        setConfig({ model: customVal.trim() })
                         setCustomMode(false)
                         setOpen(false)
                       }
@@ -205,7 +205,7 @@ export default function ModelSelector() {
                   <button
                     onClick={() => {
                       if (customVal.trim()) {
-                        setConfig({ groq_model: customVal.trim() })
+                        setConfig({ model: customVal.trim() })
                         setCustomMode(false)
                         setOpen(false)
                       }

@@ -54,7 +54,7 @@ async def parse_batch(
     languages: str = Form("eng,tha"),
     empty_value: str = Form("null"),
     extract_mode: str = Form("concise"),
-    groq_model: str = Form("llama-3.3-70b-versatile"),
+    model: str = Form("llama-3.3-70b-versatile"),
     api_keys: str = Form("{}"),  # JSON string {"groq":"key","openai":"key",...}
 ):
     config = ParseConfig(
@@ -68,7 +68,7 @@ async def parse_batch(
         languages=languages.split(","),
         empty_value=empty_value,
         extract_mode=extract_mode,
-        groq_model=groq_model,
+        model=model,
         api_keys=json.loads(api_keys) if api_keys else {},
     )
 
@@ -280,10 +280,10 @@ async def health():
 @app.get("/api/models")
 async def get_models():
     """Return all available models grouped by provider."""
-    from extractors.field_parser import ALL_MODELS, GROQ_MODEL_DEFAULT
+    from extractors.field_parser import ALL_MODELS, DEFAULT_MODEL
     return {
         "models": ALL_MODELS,
-        "default": GROQ_MODEL_DEFAULT,
+        "default": DEFAULT_MODEL,
     }
 
 # ── Batch History ─────────────────────────────────────────────────────────────
