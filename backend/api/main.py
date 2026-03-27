@@ -171,7 +171,7 @@ async def run_single_job(
     finally:
         try:
             if os.path.exists(tmp_path):
-                os.unlink(tmp_path)                                                                    │                os.unlink(tmp_path) 
+                os.unlink(tmp_path)
         except Exception:
             pass
 
